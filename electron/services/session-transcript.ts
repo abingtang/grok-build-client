@@ -6,6 +6,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getGrokHome } from "../env";
+import {
+  readDesktopSessionSnapshot,
+  snapshotToTranscriptItems,
+} from "./session-desktop-snapshot";
 
 export type TranscriptKind =
   | "user"
@@ -766,12 +770,22 @@ export function readSessionTranscript(
   options?: { includeThoughts?: boolean; maxToolOutputChars?: number },
 ): TranscriptItem[] {
   const dir = findSessionDir(sessionId, cwd);
-  if (!dir) return [];
+  if (!dir) {
+    // Still try desktop snapshot by id scan
+    return readDesktopSnapshotTranscript(sessionId, cwd);
+  }
 
   const updatesPath = path.join(dir, "updates.jsonl");
   if (fs.existsSync(updatesPath) && fs.statSync(updatesPath).size > 0) {
-    return parseUpdatesJsonl(updatesPath, options);
+    const fromUpdates = parseUpdatesJsonl(updatesPath, options);
+    // 真实回合已有内容则用 updates；否则回退桌面 fork 快照
+    if (fromUpdates.some((it) => it.kind === "user" || it.kind === "assistant")) {
+      return fromUpdates;
+    }
   }
+
+  const snapItems = readDesktopSnapshotTranscript(sessionId, cwd);
+  if (snapItems.length) return snapItems;
 
   // Fallback: chat_history (includes system prompt — filter it)
   const chatPath = path.join(dir, "chat_history.jsonl");
@@ -802,5 +816,38 @@ export function readSessionTranscript(
       /* skip */
     }
   }
-  return items;
+  if (items.length) return items;
+  return readDesktopSnapshotTranscript(sessionId, cwd);
+}
+
+function readDesktopSnapshotTranscript(
+  sessionId: string,
+  cwd?: string,
+): TranscriptItem[] {
+  try {
+    const snap = readDesktopSessionSnapshot(sessionId, cwd);
+    if (!snap?.messages?.length) return [];
+    const allowed: TranscriptKind[] = [
+      "user",
+      "assistant",
+      "thought",
+      "tool",
+      "plan",
+      "system",
+      "subagent",
+    ];
+    return snapshotToTranscriptItems(snap).map((row) => ({
+      id: row.id,
+      kind: (allowed.includes(row.kind as TranscriptKind)
+        ? row.kind
+        : "system") as TranscriptKind,
+      content: row.content,
+      title: row.title,
+      status: row.status,
+      timestamp: row.timestamp,
+      meta: row.meta,
+    }));
+  } catch {
+    return [];
+  }
 }

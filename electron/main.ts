@@ -166,6 +166,46 @@ function registerIpc(): void {
   );
 
   ipcMain.handle(
+    "sessions:saveSnapshot",
+    async (
+      _e,
+      sessionId: string,
+      cwd: string,
+      snapshot: {
+        kind: "fork" | "draft";
+        title?: string;
+        parentSessionId?: string;
+        seed?: string;
+        seedConsumed?: boolean;
+        messages: Array<{
+          id: string;
+          role: string;
+          content: string;
+          toolName?: string;
+          status?: string;
+          createdAt?: string;
+          meta?: Record<string, unknown>;
+        }>;
+      },
+    ) => {
+      const {
+        writeDesktopSessionSnapshot,
+      } = await import("./services/session-desktop-snapshot");
+      return writeDesktopSessionSnapshot(sessionId, cwd, snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "sessions:readSnapshot",
+    async (_e, sessionId: string, cwd?: string) => {
+      const {
+        readDesktopSessionSnapshot,
+      } = await import("./services/session-desktop-snapshot");
+      return readDesktopSessionSnapshot(sessionId, cwd);
+    },
+  );
+
+  ipcMain.handle(
     "sessions:search",
     async (_e, query: string, limit?: number) => {
       const q = (query || "").trim();

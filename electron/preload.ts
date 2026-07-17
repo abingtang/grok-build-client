@@ -32,6 +32,28 @@ const api = {
       ipcRenderer.invoke("sessions:search", query, limit),
     delete: (sessionId: string, cwd?: string) =>
       ipcRenderer.invoke("sessions:delete", sessionId, cwd),
+    saveSnapshot: (
+      sessionId: string,
+      cwd: string,
+      snapshot: {
+        kind: "fork" | "draft";
+        title?: string;
+        parentSessionId?: string;
+        seed?: string;
+        seedConsumed?: boolean;
+        messages: Array<{
+          id: string;
+          role: string;
+          content: string;
+          toolName?: string;
+          status?: string;
+          createdAt?: string;
+          meta?: Record<string, unknown>;
+        }>;
+      },
+    ) => ipcRenderer.invoke("sessions:saveSnapshot", sessionId, cwd, snapshot),
+    readSnapshot: (sessionId: string, cwd?: string) =>
+      ipcRenderer.invoke("sessions:readSnapshot", sessionId, cwd),
   },
 
   acp: {

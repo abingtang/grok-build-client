@@ -17,9 +17,13 @@ import {
   Conversation,
   ConversationAutoScroll,
   ConversationContent,
-  ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
+import { ChatEmptyState } from "@/components/ChatEmptyState";
+import {
+  TurnNavigator,
+  buildTurnNavItems,
+} from "@/components/TurnNavigator";
 import { Loader } from "@/components/ai-elements/loader";
 import {
   Message,
@@ -35,6 +39,8 @@ import {
   PlanHeader,
   PlanTitle,
   PlanTrigger,
+  parsePlanEntries,
+  planProgressLabel,
 } from "@/components/ai-elements/plan";
 import {
   Reasoning,
@@ -813,14 +819,21 @@ function ThoughtItem({ m }: { m: ChatMessage }) {
 }
 
 function PlanItem({ m }: { m: ChatMessage }) {
+  const entries = parsePlanEntries(m.content || "");
+  const progress = planProgressLabel(entries);
   return (
-    <Plan isStreaming={!!m.streaming} defaultOpen={!!m.streaming}>
+    <Plan isStreaming={!!m.streaming} defaultOpen={true}>
       <PlanHeader>
-        <PlanTitle isStreaming={!!m.streaming}>{rt("chat.plan")}</PlanTitle>
+        <PlanTitle isStreaming={!!m.streaming} progress={progress}>
+          {rt("chat.plan")}
+        </PlanTitle>
         <PlanTrigger />
       </PlanHeader>
       <PlanContent>
-        <PlanDescription isStreaming={!!m.streaming}>
+        <PlanDescription
+          isStreaming={!!m.streaming}
+          emptyLabel={rt("chat.planStreaming")}
+        >
           {m.content || ""}
         </PlanDescription>
       </PlanContent>
@@ -1564,25 +1577,29 @@ export function AiMessageList({
     setPreview(state);
   }, []);
 
+  const turnNavItems = useMemo(
+    () => buildTurnNavItems(segments),
+    [segments],
+  );
+
+  const lastAgentTurnId = useMemo(
+    () =>
+      [...segments].reverse().find((s) => s.type === "agent-turn")?.id,
+    [segments],
+  );
+
   if (messages.length === 0 && !streamStatus) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <ConversationEmptyState
-          title={t("chat.emptyTitle")}
-          description={t("chat.emptyDesc", { model: modelLabel || "grok" })}
-        />
+        <ChatEmptyState modelLabel={modelLabel} />
       </div>
     );
   }
 
-  const lastAgentTurnId = [...segments]
-    .reverse()
-    .find((s) => s.type === "agent-turn")?.id;
-
   return (
     <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
       <Conversation className="min-h-0 w-full flex-1">
-        <ConversationContent className="mx-auto w-full max-w-3xl gap-5 px-5 py-5">
+        <ConversationContent className="chat-col gap-5 px-[var(--chat-col-pad-x)] py-5 pr-10">
           <ConversationAutoScroll tick={tick} />
 
           {phaseLabel ? (
@@ -1593,14 +1610,22 @@ export function AiMessageList({
             if (seg.type === "user") {
               const m = seg.message;
               return (
-                <Message key={m.id} from="user">
-                  <MessageContent>
-                    {m.content ? (
-                      <div className="whitespace-pre-wrap">{m.content}</div>
-                    ) : null}
-                    <AttachmentStrip items={m.attachments} />
-                  </MessageContent>
-                </Message>
+                <div
+                  key={m.id}
+                  data-turn-id={m.id}
+                  className="turn-anchor scroll-mt-3"
+                >
+                  <Message from="user">
+                    <MessageContent>
+                      {m.content ? (
+                        <div className="chat-msg-body whitespace-pre-wrap">
+                          {m.content}
+                        </div>
+                      ) : null}
+                      <AttachmentStrip items={m.attachments} />
+                    </MessageContent>
+                  </Message>
+                </div>
               );
             }
 
@@ -1622,20 +1647,26 @@ export function AiMessageList({
             }
 
             return (
-              <AgentTurnView
+              <div
                 key={seg.id}
-                turn={seg}
-                liveElapsedMs={
-                  seg.live ? streamStatus?.elapsedMs : undefined
-                }
-                onForkMessage={onForkMessage}
-                forkDisabled={forkDisabled}
-                isLastTurn={seg.id === lastAgentTurnId}
-                onPreview={handlePreview}
-              />
+                data-turn-id={seg.id}
+                className="turn-anchor scroll-mt-3"
+              >
+                <AgentTurnView
+                  turn={seg}
+                  liveElapsedMs={
+                    seg.live ? streamStatus?.elapsedMs : undefined
+                  }
+                  onForkMessage={onForkMessage}
+                  forkDisabled={forkDisabled}
+                  isLastTurn={seg.id === lastAgentTurnId}
+                  onPreview={handlePreview}
+                />
+              </div>
             );
           })}
         </ConversationContent>
+        <TurnNavigator items={turnNavItems} />
         <ConversationScrollButton />
       </Conversation>
 

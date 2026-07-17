@@ -5,6 +5,26 @@ import type {
   PermissionMode,
   ReasoningEffort,
 } from "../lib/grokArgs";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
 
 export interface SettingsState {
   model: string;
@@ -33,113 +53,66 @@ function SettingsRow({
   title,
   description,
   children,
+  className,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="settings-row">
-      <div className="settings-row-text">
-        <div className="settings-row-title">{title}</div>
+    <div
+      className={cn(
+        "flex items-center justify-between gap-4 border-b border-border/70 py-3.5 last:border-b-0",
+        className,
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-[13.5px] font-medium text-foreground">{title}</div>
         {description ? (
-          <div className="settings-row-desc">{description}</div>
+          <div className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+            {description}
+          </div>
         ) : null}
       </div>
-      <div className="settings-row-control">{children}</div>
+      <div className="flex shrink-0 items-center justify-end">{children}</div>
     </div>
   );
 }
 
-function Toggle({
-  checked,
-  onChange,
-  disabled,
-  label,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  disabled?: boolean;
-  label?: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      className={`settings-toggle ${checked ? "on" : ""}`}
-      onClick={() => onChange(!checked)}
-    >
-      <span className="settings-toggle-knob" />
-    </button>
-  );
-}
-
-function PillSelect({
+function AppSelect({
   value,
   onChange,
   options,
   disabled,
   title,
+  className,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: Array<{ value: string; label: string }>;
   disabled?: boolean;
   title?: string;
+  className?: string;
 }) {
   return (
-    <div className="settings-pill-select">
-      <select
-        value={value}
-        disabled={disabled}
-        title={title}
-        onChange={(e) => onChange(e.target.value)}
-      >
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger className={cn("w-[148px]", className)} title={title}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
         {options.map((o) => (
-          <option key={o.value} value={o.value}>
+          <SelectItem key={o.value} value={o.value}>
             {o.label}
-          </option>
+          </SelectItem>
         ))}
-      </select>
-    </div>
-  );
-}
-
-function Segmented({
-  value,
-  onChange,
-  options,
-  disabled,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: Array<{ value: string; label: string }>;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="settings-segmented" role="group">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          disabled={disabled}
-          className={value === o.value ? "on" : ""}
-          onClick={() => onChange(o.value)}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
+      </SelectContent>
+    </Select>
   );
 }
 
 export function SettingsModal({ open, value, onChange, onClose }: Props) {
   const { t, setLocale } = useI18n();
-
-  if (!open) return null;
 
   const set = <K extends keyof SettingsState>(key: K, v: SettingsState[K]) =>
     onChange({ ...value, [key]: v });
@@ -162,186 +135,177 @@ export function SettingsModal({ open, value, onChange, onClose }: Props) {
   };
 
   return (
-    <div className="overlay settings-overlay" onClick={onClose}>
-      <div
-        className="modal settings-modal codex-settings"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-labelledby="settings-title"
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent
+        className="flex h-[min(85vh,720px)] max-h-[min(85vh,720px)] w-[min(520px,calc(100vw-32px))] flex-col overflow-hidden p-0 sm:max-w-lg"
+        showClose
       >
-        <header className="settings-header">
-          <h3 id="settings-title">{t("settings.title")}</h3>
-          <button
-            type="button"
-            className="settings-close"
-            onClick={onClose}
-            aria-label={t("common.close")}
-          >
-            ×
-          </button>
-        </header>
+        <DialogHeader className="shrink-0">
+          <DialogTitle>{t("settings.title")}</DialogTitle>
+        </DialogHeader>
 
-        <div className="settings-body">
-          <h4 className="settings-section-label">{t("settings.general")}</h4>
-          <div className="settings-card">
-            <SettingsRow
-              title={t("language.label")}
-              description={t("language.description")}
-            >
-              <Segmented
-                value={value.locale}
-                onChange={(v) => {
-                  const locale = v as Locale;
-                  set("locale", locale);
-                  setLocale(locale);
-                }}
-                options={[
-                  { value: "zh", label: t("language.zh") },
-                  { value: "en", label: t("language.en") },
-                ]}
-              />
-            </SettingsRow>
+        {/* 原生滚动：ScrollArea 需明确高度，在 flex 弹窗里容易失效 */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-5 pt-2">
+            
+              <SettingsRow
+                title={t("language.label")}
+                description={t("language.description")}
+              >
+                <ToggleGroup
+                  type="single"
+                  value={value.locale}
+                  onValueChange={(v) => {
+                    if (!v) return;
+                    const locale = v as Locale;
+                    set("locale", locale);
+                    setLocale(locale);
+                  }}
+                >
+                  <ToggleGroupItem value="zh">{t("language.zh")}</ToggleGroupItem>
+                  <ToggleGroupItem value="en">{t("language.en")}</ToggleGroupItem>
+                </ToggleGroup>
+              </SettingsRow>
 
-            <SettingsRow
-              title={t("common.model")}
-              description={t("settings.modelDesc")}
-            >
-              <PillSelect
-                value={value.model}
-                onChange={(v) => set("model", v)}
-                options={value.models.map((m) => ({ value: m, label: m }))}
-              />
-            </SettingsRow>
+              <SettingsRow
+                title={t("common.model")}
+                description={t("settings.modelDesc")}
+              >
+                <AppSelect
+                  value={value.model}
+                  onChange={(v) => set("model", v)}
+                  options={value.models.map((m) => ({ value: m, label: m }))}
+                />
+              </SettingsRow>
 
-            <SettingsRow
-              title={t("settings.effort")}
-              description={t("settings.effortDesc")}
-            >
-              <PillSelect
-                value={value.effort}
-                onChange={(v) => set("effort", v as EffortLevel)}
-                options={effortOptions}
-              />
-            </SettingsRow>
+              <SettingsRow
+                title={t("settings.effort")}
+                description={t("settings.effortDesc")}
+              >
+                <AppSelect
+                  value={value.effort}
+                  onChange={(v) => set("effort", v as EffortLevel)}
+                  options={effortOptions}
+                />
+              </SettingsRow>
 
-            <SettingsRow
-              title={t("settings.reasoning")}
-              description={t("settings.reasoningDesc")}
-            >
-              <PillSelect
-                value={value.reasoning}
-                onChange={(v) => set("reasoning", v as ReasoningEffort)}
-                options={[
-                  { value: "off", label: t("settings.reasoningOff") },
-                  ...effortOptions,
-                ]}
-              />
-            </SettingsRow>
+              <SettingsRow
+                title={t("settings.reasoning")}
+                description={t("settings.reasoningDesc")}
+              >
+                <AppSelect
+                  value={value.reasoning}
+                  onChange={(v) => set("reasoning", v as ReasoningEffort)}
+                  options={[
+                    { value: "off", label: t("settings.reasoningOff") },
+                    ...effortOptions,
+                  ]}
+                />
+              </SettingsRow>
 
-            <SettingsRow
-              title={t("settings.permissionMode")}
-              description={t("settings.permissionModeDesc")}
-            >
-              <PillSelect
-                value={value.permissionMode}
-                disabled={value.alwaysApprove}
-                onChange={(v) => set("permissionMode", v as PermissionMode)}
-                options={[
-                  "default",
-                  "acceptEdits",
-                  "auto",
-                  "dontAsk",
-                  "plan",
-                  "bypassPermissions",
-                ].map((x) => ({
-                  value: x,
-                  label: permissionLabels[x] || x,
-                }))}
-              />
-            </SettingsRow>
+              <SettingsRow
+                title={t("settings.permissionMode")}
+                description={t("settings.permissionModeDesc")}
+              >
+                <AppSelect
+                  value={value.permissionMode}
+                  disabled={value.alwaysApprove}
+                  onChange={(v) => set("permissionMode", v as PermissionMode)}
+                  options={[
+                    "default",
+                    "acceptEdits",
+                    "auto",
+                    "dontAsk",
+                    "plan",
+                    "bypassPermissions",
+                  ].map((x) => ({
+                    value: x,
+                    label: permissionLabels[x] || x,
+                  }))}
+                />
+              </SettingsRow>
 
-            <SettingsRow
-              title={t("settings.bestOfN")}
-              description={t("settings.bestOfNDesc")}
-            >
-              <Segmented
-                value={String(value.bestOfN)}
-                onChange={(v) => set("bestOfN", Number(v))}
-                options={[1, 2, 3, 4, 5].map((n) => ({
-                  value: String(n),
-                  label: String(n),
-                }))}
-              />
-            </SettingsRow>
+              <SettingsRow
+                title={t("settings.bestOfN")}
+                description={t("settings.bestOfNDesc")}
+              >
+                <AppSelect
+                  value={String(value.bestOfN)}
+                  onChange={(v) => set("bestOfN", Number(v))}
+                  options={[1, 2, 3, 4, 5].map((n) => ({
+                    value: String(n),
+                    label: String(n),
+                  }))}
+                />
+              </SettingsRow>
 
-            <SettingsRow
-              title={t("settings.alwaysApprove")}
-              description={t("settings.alwaysApproveDesc")}
-            >
-              <Toggle
-                label={t("settings.alwaysApprove")}
-                checked={value.alwaysApprove}
-                onChange={(v) => set("alwaysApprove", v)}
-              />
-            </SettingsRow>
+              <SettingsRow
+                title={t("settings.alwaysApprove")}
+                description={t("settings.alwaysApproveDesc")}
+              >
+                <Switch
+                  checked={value.alwaysApprove}
+                  onCheckedChange={(v) => set("alwaysApprove", v)}
+                  aria-label={t("settings.alwaysApprove")}
+                />
+              </SettingsRow>
 
-            <SettingsRow
-              title={t("settings.webSearch")}
-              description={t("settings.webSearchDesc")}
-            >
-              <Toggle
-                label={t("settings.webSearch")}
-                checked={value.webSearch}
-                onChange={(v) => set("webSearch", v)}
-              />
-            </SettingsRow>
+              <SettingsRow
+                title={t("settings.webSearch")}
+                description={t("settings.webSearchDesc")}
+              >
+                <Switch
+                  checked={value.webSearch}
+                  onCheckedChange={(v) => set("webSearch", v)}
+                  aria-label={t("settings.webSearch")}
+                />
+              </SettingsRow>
 
-            <SettingsRow
-              title={t("settings.subagents")}
-              description={t("settings.subagentsDesc")}
-            >
-              <Toggle
-                label={t("settings.subagents")}
-                checked={value.subagents}
-                onChange={(v) => set("subagents", v)}
-              />
-            </SettingsRow>
+              <SettingsRow
+                title={t("settings.subagents")}
+                description={t("settings.subagentsDesc")}
+              >
+                <Switch
+                  checked={value.subagents}
+                  onCheckedChange={(v) => set("subagents", v)}
+                  aria-label={t("settings.subagents")}
+                />
+              </SettingsRow>
 
-            <SettingsRow
-              title={t("settings.memory")}
-              description={t("settings.memoryDesc")}
-            >
-              <Toggle
-                label={t("settings.memory")}
-                checked={value.memory}
-                onChange={(v) => set("memory", v)}
-              />
-            </SettingsRow>
+              <SettingsRow
+                title={t("settings.memory")}
+                description={t("settings.memoryDesc")}
+              >
+                <Switch
+                  checked={value.memory}
+                  onCheckedChange={(v) => set("memory", v)}
+                  aria-label={t("settings.memory")}
+                />
+              </SettingsRow>
 
-            <SettingsRow
-              title={t("settings.selfCheck")}
-              description={t("settings.selfCheckDesc")}
-            >
-              <Toggle
-                label={t("settings.selfCheck")}
-                checked={value.selfCheck}
-                onChange={(v) => set("selfCheck", v)}
-              />
-            </SettingsRow>
+              <SettingsRow
+                title={t("settings.selfCheck")}
+                description={t("settings.selfCheckDesc")}
+              >
+                <Switch
+                  checked={value.selfCheck}
+                  onCheckedChange={(v) => set("selfCheck", v)}
+                  aria-label={t("settings.selfCheck")}
+                />
+              </SettingsRow>
 
-            <SettingsRow
-              title={t("settings.themeLight")}
-              description={t("settings.themeLightDesc")}
-            >
-              <Toggle
-                label={t("settings.themeLight")}
-                checked={value.themeLight}
-                onChange={(v) => set("themeLight", v)}
-              />
-            </SettingsRow>
-          </div>
+              <SettingsRow
+                title={t("settings.themeLight")}
+                description={t("settings.themeLightDesc")}
+              >
+                <Switch
+                  checked={value.themeLight}
+                  onCheckedChange={(v) => set("themeLight", v)}
+                  aria-label={t("settings.themeLight")}
+                />
+              </SettingsRow>
+            
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

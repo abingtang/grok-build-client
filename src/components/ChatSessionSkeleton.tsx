@@ -3,7 +3,7 @@ import { useI18n } from "../i18n";
 
 /**
  * Chat-transcript-shaped skeleton shown while a session is loading.
- * Layout mirrors AiMessageList ConversationContent (max-w-3xl, px-5, py-5).
+ * Layout mirrors AiMessageList ConversationContent (chat-col width).
  */
 export function ChatSessionSkeleton() {
   const { t } = useI18n();
@@ -15,7 +15,7 @@ export function ChatSessionSkeleton() {
       aria-label={t("skeleton.loadingSession")}
       aria-live="polite"
     >
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-5">
+      <div className="chat-col flex w-full flex-col gap-6 px-[var(--chat-col-pad-x)] py-5">
         {/* User bubble — right-aligned */}
         <div className="flex justify-end">
           <Skeleton className="h-12 w-[40%] rounded-2xl" />

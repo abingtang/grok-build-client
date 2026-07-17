@@ -1,12 +1,40 @@
 import {
   useEffect,
   useMemo,
-  useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useI18n, type TranslateFn } from "../i18n";
 import type { ProjectInfo, SessionSummary } from "../lib/types";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  ArchiveIcon,
+  ChevronRightIcon,
+  ComponentInstanceIcon,
+  Cross2Icon,
+  DotsHorizontalIcon,
+  DrawingPinFilledIcon,
+  DrawingPinIcon,
+  ExternalLinkIcon,
+  FilePlusIcon,
+  FileTextIcon,
+  GearIcon,
+  LinkBreak2Icon,
+  MagicWandIcon,
+  MixerHorizontalIcon,
+  MoonIcon,
+  PlusIcon,
+  Share1Icon,
+  SunIcon,
+  TrashIcon,
+  UpdateIcon,
+  MagnifyingGlassIcon,
+} from "@radix-ui/react-icons";
 
 interface Props {
   projects: ProjectInfo[];
@@ -16,10 +44,6 @@ interface Props {
   activeSessionId: string | null;
   loadingPath?: string | null;
   loadingSessionId?: string | null;
-  searchQuery: string;
-  searchResults: SessionSummary[] | null;
-  searchLoading?: boolean;
-  onSearchQueryChange: (q: string) => void;
   onToggleProject: (project: ProjectInfo) => void;
   onSelectSession: (project: ProjectInfo, session: SessionSummary) => void;
   onDeleteSession: (project: ProjectInfo | null, session: SessionSummary) => void;
@@ -31,103 +55,26 @@ interface Props {
   onPinProject?: (project: ProjectInfo, pinned: boolean) => void;
   onRemoveProject?: (project: ProjectInfo) => void;
   onRevealInFinder?: (project: ProjectInfo) => void;
-  onOpenInspector?: () => void;
+  /** Open full-page global config (MCP / Skills / Hooks) */
+  onOpenGlobalPage?: (tab: "mcp" | "skills" | "hooks") => void;
+  /** Open command palette (session search lives there) */
+  onOpenSearch?: () => void;
+  /** Open session-scoped inspector for a session */
+  onOpenSessionInspector?: (
+    project: ProjectInfo,
+    session: SessionSummary,
+    tab?: "context" | "plan" | "rewind" | "subagents",
+  ) => void;
   onOpenSettings?: () => void;
+  /** true = light theme */
+  themeLight?: boolean;
+  onToggleTheme?: () => void;
 }
 
 function FolderIcon({ open }: { open: boolean }) {
   return (
     <span className={`tree-icon folder ${open ? "open" : ""}`} aria-hidden>
-      {open ? (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <path
-            d="M1.5 4.5A1.5 1.5 0 0 1 3 3h3.2c.3 0 .6.1.8.3L8.2 4.5H13a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12V4.5Z"
-            fill="currentColor"
-            opacity="0.85"
-          />
-        </svg>
-      ) : (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <path
-            d="M1.5 3.5A1.5 1.5 0 0 1 3 2h3.1c.3 0 .6.1.8.3L8.1 3.5H13A1.5 1.5 0 0 1 14.5 5v7A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12V3.5Z"
-            stroke="currentColor"
-            strokeWidth="1.2"
-            fill="none"
-          />
-        </svg>
-      )}
-    </span>
-  );
-}
-
-function SessionIcon() {
-  return (
-    <span className="tree-icon session" aria-hidden>
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-        <rect
-          x="3"
-          y="2.5"
-          width="10"
-          height="11"
-          rx="1.5"
-          stroke="currentColor"
-          strokeWidth="1.2"
-        />
-        <path
-          d="M5.5 6h5M5.5 8.5h5M5.5 11h3"
-          stroke="currentColor"
-          strokeWidth="1.1"
-        />
-      </svg>
-    </span>
-  );
-}
-
-function SubagentSessionIcon() {
-  return (
-    <span className="tree-icon session subagent" aria-hidden>
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-        <circle
-          cx="8"
-          cy="8"
-          r="4.5"
-          stroke="currentColor"
-          strokeWidth="1.2"
-        />
-        <path
-          d="M6 8h4M8 6v4"
-          stroke="currentColor"
-          strokeWidth="1.1"
-          strokeLinecap="round"
-        />
-      </svg>
-    </span>
-  );
-}
-
-/** Git-style branch/fork mark for session_kind=fork */
-function ForkSessionIcon() {
-  return (
-    <span className="tree-icon session fork" aria-hidden>
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-        {/* trunk */}
-        <path
-          d="M5 3.5v6.5"
-          stroke="currentColor"
-          strokeWidth="1.25"
-          strokeLinecap="round"
-        />
-        {/* branch arc + tip */}
-        <path
-          d="M5 7.2c0 2 1.6 3.3 4 3.3h0"
-          stroke="currentColor"
-          strokeWidth="1.25"
-          strokeLinecap="round"
-        />
-        <circle cx="5" cy="3.5" r="1.6" fill="currentColor" />
-        <circle cx="5" cy="12" r="1.6" fill="currentColor" />
-        <circle cx="11" cy="10.5" r="1.6" fill="currentColor" />
-      </svg>
+      <ArchiveIcon width={14} height={14} />
     </span>
   );
 }
@@ -137,159 +84,66 @@ function sessionRowIcon(s: SessionSummary, nested: boolean, loading: boolean) {
     return <span className="tree-mini-spinner" aria-hidden />;
   }
   const kind = String(s.sessionKind || "").toLowerCase();
-  if (kind === "fork") return <ForkSessionIcon />;
-  if (nested || isSubagentSession(s)) return <SubagentSessionIcon />;
-  return <SessionIcon />;
+  if (kind === "fork") {
+    return (
+      <span className="tree-icon session fork" aria-hidden>
+        <Share1Icon width={12} height={12} />
+      </span>
+    );
+  }
+  if (nested || isSubagentSession(s)) {
+    return (
+      <span className="tree-icon session subagent" aria-hidden>
+        <ComponentInstanceIcon width={12} height={12} />
+      </span>
+    );
+  }
+  return (
+    <span className="tree-icon session" aria-hidden>
+      <FileTextIcon width={12} height={12} />
+    </span>
+  );
 }
 
 function ChevronSessionIcon({ open }: { open: boolean }) {
   return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 16 16"
-      fill="none"
+    <ChevronRightIcon
+      width={12}
+      height={12}
       aria-hidden
       className={open ? "session-chevron open" : "session-chevron"}
-    >
-      <path
-        d="M6 4l4 4-4 4"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    />
   );
 }
 
-function TrashIcon() {
+function GlobalMcpIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M3.5 4.5h9M6 4.5V3.2c0-.4.3-.7.7-.7h2.6c.4 0 .7.3.7.7v1.3M5.2 4.5l.4 8c0 .5.4.9.9.9h3c.5 0 .9-.4.9-.9l.4-8"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <span className="sidebar-global-icon" aria-hidden>
+      <MixerHorizontalIcon width={14} height={14} />
+    </span>
   );
 }
 
-function ClearIcon() {
+function GlobalSkillsIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M4 4l8 8M12 4l-8 8"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
+    <span className="sidebar-global-icon" aria-hidden>
+      <MagicWandIcon width={14} height={14} />
+    </span>
   );
 }
 
-function MoreIcon() {
+function GlobalHooksIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <circle cx="4" cy="8" r="1.2" fill="currentColor" />
-      <circle cx="8" cy="8" r="1.2" fill="currentColor" />
-      <circle cx="12" cy="8" r="1.2" fill="currentColor" />
-    </svg>
+    <span className="sidebar-global-icon" aria-hidden>
+      <LinkBreak2Icon width={14} height={14} />
+    </span>
   );
 }
 
-function PlusIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M8 3v10M3 8h10"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
+function PinIcon({ filled }: { filled?: boolean }) {
+  const Icon = filled ? DrawingPinFilledIcon : DrawingPinIcon;
+  return <Icon width={14} height={14} aria-hidden />;
 }
-
-function PinIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M8.5 2.5 13 7l-1.2 1.2-1.3-.2-.8 3.6-1.1 1.1-2.1-2.1-2.5 2.5-.9-.9 2.5-2.5-2.1-2.1 1.1-1.1 3.6-.8-.2-1.3L8.5 2.5Z"
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function FinderIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M2.5 4.5A1.5 1.5 0 0 1 4 3h2.6c.3 0 .6.1.8.3L8.6 4.5H12A1.5 1.5 0 0 1 13.5 6v5.5A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5v-7Z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-      />
-    </svg>
-  );
-}
-
-function NewTaskIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M4 3.5h5.5L13 7v5.5A1 1 0 0 1 12 13.5H4A1 1 0 0 1 3 12.5v-8A1 1 0 0 1 4 3.5Z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-      />
-      <path
-        d="M9.5 3.5V7H13"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function RemoveIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M4 4l8 8M12 4l-8 8"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function RefreshIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M13 8a5 5 0 1 1-1.4-3.4"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M13 3.5V6.5H10"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-type MenuKind = "project";
 
 /** Recursive: fork → subagent → … all levels nested. */
 type SessionTreeNode = {
@@ -411,6 +265,10 @@ type SessionTreeBranchProps = {
   onSelectSession: (project: ProjectInfo, session: SessionSummary) => void;
   onDeleteSession: (project: ProjectInfo | null, session: SessionSummary) => void;
   onConfirmDelete: (id: string | null) => void;
+  onOpenSessionInspector?: (
+    project: ProjectInfo,
+    session: SessionSummary,
+  ) => void;
 };
 
 function SessionTreeBranch({
@@ -425,6 +283,7 @@ function SessionTreeBranch({
   onSelectSession,
   onDeleteSession,
   onConfirmDelete,
+  onOpenSessionInspector,
 }: SessionTreeBranchProps) {
   const { t } = useI18n();
   const s = node.session;
@@ -541,7 +400,7 @@ function SessionTreeBranch({
                 onConfirmDelete(s.id);
               }}
             >
-              <TrashIcon />
+              <TrashIcon width={14} height={14} />
             </button>
           )}
         </span>
@@ -563,6 +422,7 @@ function SessionTreeBranch({
               onSelectSession={onSelectSession}
               onDeleteSession={onDeleteSession}
               onConfirmDelete={onConfirmDelete}
+              onOpenSessionInspector={onOpenSessionInspector}
             />
           ))}
         </div>
@@ -581,10 +441,6 @@ export function ProjectTree({
   activeSessionId,
   loadingPath,
   loadingSessionId,
-  searchQuery,
-  searchResults,
-  searchLoading,
-  onSearchQueryChange,
   onToggleProject,
   onSelectSession,
   onDeleteSession,
@@ -595,8 +451,12 @@ export function ProjectTree({
   onPinProject,
   onRemoveProject,
   onRevealInFinder,
-  onOpenInspector,
+  onOpenGlobalPage,
+  onOpenSearch,
+  onOpenSessionInspector,
   onOpenSettings,
+  themeLight = false,
+  onToggleTheme,
 }: Props) {
   const { t } = useI18n();
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -604,14 +464,6 @@ export function ProjectTree({
   const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [menu, setMenu] = useState<{
-    kind: MenuKind;
-    projectPath?: string;
-    x: number;
-    y: number;
-  } | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const isSearch = searchQuery.trim().length > 0;
 
   // 选中嵌套会话时，展开整条祖先链（fork → 根）
   useEffect(() => {
@@ -645,205 +497,87 @@ export function ProjectTree({
     });
   }
 
-  const projectByPath = useMemo(() => {
-    const m = new Map<string, ProjectInfo>();
-    for (const p of projects) m.set(p.path, p);
-    return m;
-  }, [projects]);
-
-  const menuProject = menu?.projectPath
-    ? projectByPath.get(menu.projectPath) || null
-    : null;
-
-  useEffect(() => {
-    if (!menu) return;
-    const onDoc = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (menuRef.current?.contains(t)) return;
-      setMenu(null);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenu(null);
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menu]);
-
-  function openMenu(
-    e: ReactMouseEvent,
-    kind: MenuKind,
-    projectPath?: string,
-  ): void {
-    e.preventDefault();
-    e.stopPropagation();
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setMenu({
-      kind,
-      projectPath,
-      x: Math.min(rect.left, window.innerWidth - 220),
-      y: rect.bottom + 4,
-    });
-  }
-
   return (
     <aside className="sidebar codex-sidebar">
-      {/* Codex: 新建任务 */}
-      <div className="sidebar-new-wrap titlebar-no-drag">
+      {/* 顶部导航：新建 + 全局配置，统一行样式 */}
+      <nav className="sidebar-global-nav titlebar-no-drag" aria-label={t("tree.globalNav")}>
         <button
           type="button"
-          className="sidebar-new-task"
-          onClick={onNewChat}
+          className="sidebar-global-item"
           title={t("tree.newSession")}
+          onClick={onNewChat}
         >
-          <NewTaskIcon />
+          <span className="sidebar-global-icon" aria-hidden>
+            <FilePlusIcon width={14} height={14} />
+          </span>
           <span>{t("tree.newTask")}</span>
         </button>
-      </div>
+        <button
+          type="button"
+          className="sidebar-global-item"
+          title={t("tree.navMcpTitle")}
+          onClick={() => onOpenGlobalPage?.("mcp")}
+        >
+          <GlobalMcpIcon />
+          <span>{t("tree.navMcp")}</span>
+        </button>
+        <button
+          type="button"
+          className="sidebar-global-item"
+          title={t("tree.navSkillsTitle")}
+          onClick={() => onOpenGlobalPage?.("skills")}
+        >
+          <GlobalSkillsIcon />
+          <span>{t("tree.navSkills")}</span>
+        </button>
+        <button
+          type="button"
+          className="sidebar-global-item"
+          title={t("tree.navHooksTitle")}
+          onClick={() => onOpenGlobalPage?.("hooks")}
+        >
+          <GlobalHooksIcon />
+          <span>{t("tree.navHooks")}</span>
+        </button>
+      </nav>
 
-      <div className="sidebar-search titlebar-no-drag">
-        <div className="sidebar-search-field">
-          <input
-            type="text"
-            className="sidebar-search-input"
-            placeholder={t("tree.searchSessions")}
-            value={searchQuery}
-            onChange={(e) => onSearchQueryChange(e.target.value)}
-            aria-label={t("tree.searchSessions")}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          {searchQuery ? (
-            <button
-              type="button"
-              className="sidebar-search-clear"
-              title={t("tree.clear")}
-              aria-label={t("tree.clearSearch")}
-              onClick={() => onSearchQueryChange("")}
-            >
-              <ClearIcon />
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      {/* 项目 | 打开项目 · 刷新列表 */}
+      {/* 项目 | 搜索(⌘K) · 打开 · 刷新 */}
       <div className="section-head titlebar-no-drag">
-        <span className="section-head-label">
-          {isSearch ? (searchLoading ? t("tree.searching") : t("tree.searchLabel")) : t("tree.projects")}
+        <span className="section-head-label">{t("tree.projects")}</span>
+        <span className="section-head-actions">
+          <button
+            type="button"
+            className="icon-btn"
+            title={`${t("tree.searchSessions")} (⌘K)`}
+            aria-label={t("tree.searchSessions")}
+            onClick={() => onOpenSearch?.()}
+          >
+            <MagnifyingGlassIcon width={14} height={14} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title={t("tree.openProject")}
+            aria-label={t("tree.openProject")}
+            onClick={onOpenFolder}
+          >
+            <PlusIcon width={14} height={14} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title={t("tree.refreshList")}
+            aria-label={t("tree.refreshList")}
+            onClick={onRefresh}
+          >
+            <UpdateIcon width={14} height={14} />
+          </button>
         </span>
-        {!isSearch ? (
-          <span className="section-head-actions">
-            <button
-              type="button"
-              className="icon-btn"
-              title={t("tree.openProject")}
-              aria-label={t("tree.openProject")}
-              onClick={onOpenFolder}
-            >
-              <PlusIcon />
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              title={t("tree.refreshList")}
-              aria-label={t("tree.refreshList")}
-              onClick={onRefresh}
-            >
-              <RefreshIcon />
-            </button>
-          </span>
-        ) : null}
       </div>
 
       <div className="project-tree">
-        {isSearch ? (
-          searchLoading && (!searchResults || searchResults.length === 0) ? (
-            <div className="empty-hint">{t("tree.searchingHint")}</div>
-          ) : !searchResults || searchResults.length === 0 ? (
-            <div className="empty-hint">{t("tree.noMatch")}</div>
-          ) : (
-            searchResults.map((s) => {
-              const proj =
-                projectByPath.get(s.cwd) ||
-                ({
-                  path: s.cwd,
-                  name: projectNameForSession(s, projects),
-                } as ProjectInfo);
-              const active = activeSessionId === s.id;
-              const loading = loadingSessionId === s.id;
-              const confirming = confirmId === s.id;
-              return (
-                <div
-                  key={s.id}
-                  className={`tree-row session-row search-hit ${active ? "active" : ""} ${loading ? "loading" : ""}`}
-                >
-                  <button
-                    type="button"
-                    className="session-row-main"
-                    title={s.summary || s.id}
-                    disabled={!!loadingSessionId}
-                    onClick={() => onSelectSession(proj, s)}
-                  >
-                    {loading ? (
-                      <span className="tree-mini-spinner" aria-hidden />
-                    ) : (
-                      <SessionIcon />
-                    )}
-                    <span className="tree-label-stack">
-                      <span className="tree-label">
-                        {s.title || s.id.slice(0, 8)}
-                      </span>
-                      <span className="tree-sub">
-                        {projectNameForSession(s, projects) || s.cwd || "—"}
-                      </span>
-                    </span>
-                  </button>
-                  {confirming ? (
-                    <span className="session-del-confirm">
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-danger"
-                        onClick={() => {
-                          setConfirmId(null);
-                          onDeleteSession(proj, s);
-                        }}
-                      >
-                        {t("common.confirm")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-sm"
-                        onClick={() => setConfirmId(null)}
-                      >
-                        {t("common.cancel")}
-                      </button>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="session-del-btn"
-                      title={t("tree.deleteSession")}
-                      aria-label={t("tree.deleteSession")}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConfirmId(s.id);
-                      }}
-                    >
-                      <TrashIcon />
-                    </button>
-                  )}
-                </div>
-              );
-            })
-          )
-        ) : projects.length === 0 ? (
-          <div className="empty-hint">
-            {t("tree.noProjects")}
-          </div>
+        {projects.length === 0 ? (
+          <div className="empty-hint">{t("tree.noProjects")}</div>
         ) : (
           projects.map((p) => {
             const isOpen = expanded.has(p.path);
@@ -866,7 +600,7 @@ export function ProjectTree({
                     <span className="tree-label">{p.name}</span>
                     {p.pinned ? (
                       <span className="tree-pin-mark" title={t("tree.pinned")}>
-                        <PinIcon />
+                        <PinIcon filled />
                       </span>
                     ) : null}
                   </button>
@@ -881,15 +615,45 @@ export function ProjectTree({
                       <span className="tree-count tree-count-empty" aria-hidden />
                     )}
                     <span className="project-row-actions">
-                      <button
-                        type="button"
-                        className="icon-btn project-more"
-                        title={t("tree.projectActions")}
-                        aria-label={t("tree.projectActions")}
-                        onClick={(e) => openMenu(e, "project", p.path)}
-                      >
-                        <MoreIcon />
-                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="icon-btn project-more"
+                            title={t("tree.projectActions")}
+                            aria-label={t("tree.projectActions")}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <DotsHorizontalIcon width={14} height={14} />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" sideOffset={4}>
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              onPinProject?.(p, !p.pinned)
+                            }
+                          >
+                            <PinIcon filled={!!p.pinned} />
+                            <span>
+                              {p.pinned ? t("tree.unpin") : t("tree.pin")}
+                            </span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => onRevealInFinder?.(p)}
+                          >
+                            <ExternalLinkIcon width={14} height={14} />
+                            <span>{t("tree.revealFinder")}</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            destructive
+                            onSelect={() => onRemoveProject?.(p)}
+                          >
+                            <Cross2Icon width={14} height={14} />
+                            <span>{t("tree.remove")}</span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                       <button
                         type="button"
                         className="icon-btn project-new-session"
@@ -900,7 +664,7 @@ export function ProjectTree({
                           onNewChatInProject?.(p);
                         }}
                       >
-                        <PlusIcon />
+                        <PlusIcon width={14} height={14} />
                       </button>
                     </span>
                   </span>
@@ -930,6 +694,7 @@ export function ProjectTree({
                           onSelectSession={onSelectSession}
                           onDeleteSession={onDeleteSession}
                           onConfirmDelete={setConfirmId}
+                          onOpenSessionInspector={onOpenSessionInspector}
                         />
                       ))
                     )}
@@ -944,72 +709,32 @@ export function ProjectTree({
       <div className="sidebar-footer titlebar-no-drag">
         <button
           type="button"
-          className="btn btn-sm sidebar-footer-btn"
-          onClick={() => onOpenInspector?.()}
-          title={t("tree.inspectorTitle")}
+          className="sidebar-footer-icon-btn"
+          onClick={() => onToggleTheme?.()}
+          title={
+            themeLight ? t("palette.themeDark") : t("palette.themeLight")
+          }
+          aria-label={
+            themeLight ? t("palette.themeDark") : t("palette.themeLight")
+          }
+          aria-pressed={themeLight}
         >
-          {t("tree.inspector")}
+          {themeLight ? (
+            <MoonIcon width={16} height={16} />
+          ) : (
+            <SunIcon width={16} height={16} />
+          )}
         </button>
         <button
           type="button"
-          className="btn btn-sm sidebar-footer-btn"
+          className="sidebar-footer-icon-btn"
           onClick={() => onOpenSettings?.()}
           title={t("tree.settings")}
+          aria-label={t("tree.settings")}
         >
-          {t("tree.settings")}
+          <GearIcon width={16} height={16} />
         </button>
       </div>
-
-      {menu ? (
-        <div
-          ref={menuRef}
-          className="sidebar-context-menu"
-          style={{ left: menu.x, top: menu.y }}
-          role="menu"
-        >
-          {menu.kind === "project" && menuProject ? (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                className="ctx-item"
-                onClick={() => {
-                  setMenu(null);
-                  onPinProject?.(menuProject, !menuProject.pinned);
-                }}
-              >
-                <PinIcon />
-                <span>{menuProject.pinned ? t("tree.unpin") : t("tree.pin")}</span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="ctx-item"
-                onClick={() => {
-                  setMenu(null);
-                  onRevealInFinder?.(menuProject);
-                }}
-              >
-                <FinderIcon />
-                <span>{t("tree.revealFinder")}</span>
-              </button>
-              <div className="ctx-sep" />
-              <button
-                type="button"
-                role="menuitem"
-                className="ctx-item danger"
-                onClick={() => {
-                  setMenu(null);
-                  onRemoveProject?.(menuProject);
-                }}
-              >
-                <RemoveIcon />
-                <span>{t("tree.remove")}</span>
-              </button>
-            </>
-          ) : null}
-        </div>
-      ) : null}
     </aside>
   );
 }

@@ -33,7 +33,12 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* Dark graphite theme (app default) */
+/*
+ * shadcn / Tailwind semantic tokens.
+ * --accent = hover/highlight surface (NOT brand fill).
+ * Brand solid fill lives in app.css as --brand to avoid name collision.
+ * Re-asserted after app.css import via :root rules below so cascade wins.
+ */
 :root,
 .dark {
   --radius: 0.625rem;
@@ -49,7 +54,8 @@
   --secondary-foreground: #ece9e2;
   --muted: #1e1e1e;
   --muted-foreground: #999692;
-  --accent: #1e1e1e;
+  /* Slightly lighter than popover so Select/menu highlight is visible */
+  --accent: #2a2a2a;
   --accent-foreground: #ece9e2;
   --destructive: #c26c6c;
   --border: #232323;
@@ -89,11 +95,156 @@
   }
 }
 
+/*
+ * ── Radix / shadcn 控件（无层 plain CSS）──────────────────────────────
+ * 需要强对比或固定几何的控件放这里；依赖 Tailwind 的按钮背景已可正常生效
+ *（app.css 不再全局 button { background:none }）。
+ */
+
+/* Switch：固定尺寸 + 绿轨，不依赖 Tailwind bg-* */
+.ui-switch {
+  display: inline-flex;
+  align-items: center;
+  width: 44px;
+  height: 26px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 0;
+  cursor: pointer;
+  background: #a8a49a; /* 关：浅灰，深/浅底都可见 */
+  background-color: #a8a49a;
+  transition: background-color 0.15s ease;
+}
+
+.ui-switch:focus-visible {
+  outline: 2px solid rgba(52, 199, 89, 0.45);
+  outline-offset: 2px;
+}
+
+.ui-switch:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ui-switch[data-state="checked"] {
+  background: #34c759;
+  background-color: #34c759;
+}
+
+.ui-switch-thumb {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  transform: translateX(3px);
+  transition: transform 0.15s ease;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.ui-switch[data-state="checked"] .ui-switch-thumb {
+  transform: translateX(21px);
+}
+
+:root[data-theme="light"] .ui-switch:not([data-state="checked"]),
+.light .ui-switch:not([data-state="checked"]) {
+  background: #b5b0a6;
+  background-color: #b5b0a6;
+}
+
+/* ToggleGroup：激活态实心 primary，避免与轨道糊在一起 */
+button.ui-toggle-item {
+  background: transparent;
+  color: var(--muted-foreground, #999692);
+  border: none;
+  box-shadow: none;
+}
+
+button.ui-toggle-item:hover {
+  color: var(--foreground, #ece9e2);
+  background: color-mix(in srgb, var(--muted, #1e1e1e) 55%, transparent);
+}
+
+button.ui-toggle-item[data-state="on"] {
+  background: var(--primary, #ece9e2);
+  color: var(--primary-foreground, #131313);
+  font-weight: 650;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+}
+
+button.ui-toggle-item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ring, #6a6864) 80%, transparent);
+  outline-offset: 1px;
+}
+
+button.ui-toggle-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Tabs：激活态实心块，与 Toggle 一致的可读性 */
+button.ui-tabs-trigger {
+  background: transparent;
+  color: var(--muted-foreground, #999692);
+  border: none;
+}
+
+button.ui-tabs-trigger:hover {
+  color: var(--foreground, #ece9e2);
+  background: color-mix(in srgb, var(--muted, #1e1e1e) 45%, transparent);
+}
+
+button.ui-tabs-trigger[data-state="active"] {
+  background: var(--primary, #ece9e2);
+  color: var(--primary-foreground, #131313);
+  font-weight: 600;
+}
+
+/* Select 触发器：保证边框 + 底色不被其它重置影响 */
+button.ui-select-trigger {
+  background: color-mix(in srgb, var(--muted, #1e1e1e) 40%, transparent);
+  border: 1px solid var(--border, #232323);
+  color: var(--foreground, #ece9e2);
+}
+
+button.ui-select-trigger:hover {
+  background: color-mix(in srgb, var(--muted, #1e1e1e) 70%, transparent);
+}
+
+button.ui-select-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Select / 菜单项高亮（Radix data-highlighted；div 非 button 也一并覆盖） */
+[data-radix-collection-item][data-highlighted],
+[role="option"][data-highlighted],
+[role="menuitem"][data-highlighted] {
+  background: var(--accent, #2a2a2a);
+  color: var(--accent-foreground, #ece9e2);
+}
+
+/* Dialog 关闭按钮悬停 */
+button.ui-dialog-close:hover {
+  background: var(--muted, #1e1e1e);
+  color: var(--foreground, #ece9e2);
+}
+
 /* Streamdown / AI Elements message prose — flat single-shell cards */
 @layer components {
   .ai-msg-prose,
   [data-streamdown] {
-    @apply text-sm leading-relaxed;
+    font-size: var(--chat-body-font-size, 15.5px);
+    line-height: var(--chat-body-line-height, 1.65);
+  }
+
+  /* 与 Streamdown 一致：用户气泡 / 纯文本消息 */
+  .chat-msg-body {
+    font-size: var(--chat-body-font-size, 15.5px);
+    line-height: var(--chat-body-line-height, 1.65);
   }
 
   /* Code block: single outer border; kill nested Streamdown layers */
@@ -123,7 +274,7 @@
     overflow-x: auto !important;
     margin: 0 !important;
     padding: 0.75rem !important;
-    font-size: 12px !important;
+    font-size: var(--chat-code-font-size, 13px) !important;
   }
 
   [data-streamdown="code-block-actions"],
@@ -156,7 +307,20 @@
 
   /* Standalone pre outside code-block shell (fallback) */
   [data-streamdown] pre:not([data-streamdown="code-block"] pre) {
-    @apply overflow-x-auto rounded-md border border-border bg-muted/40 p-3 text-[12px];
+    @apply overflow-x-auto rounded-md border border-border bg-muted/40 p-3;
+    font-size: var(--chat-code-font-size, 13px);
+  }
+
+  [data-streamdown] h1 {
+    font-size: 1.35em;
+  }
+
+  [data-streamdown] h2 {
+    font-size: 1.2em;
+  }
+
+  [data-streamdown] h3 {
+    font-size: 1.1em;
   }
 
   [data-streamdown] a {

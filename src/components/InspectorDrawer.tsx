@@ -1,5 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
+import {
+  parsePlanEntries,
+  type PlanEntryStatus,
+} from "@/components/ai-elements/plan";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
 
 export type InspectorTab =
   | "context"
@@ -10,6 +25,25 @@ export type InspectorTab =
   | "hooks"
   | "worktree"
   | "subagents";
+
+/** Global config vs current-session tooling */
+export type InspectorScope = "global" | "session";
+
+export const GLOBAL_INSPECTOR_TABS: InspectorTab[] = ["mcp", "skills", "hooks"];
+export const SESSION_INSPECTOR_TABS: InspectorTab[] = [
+  "context",
+  "plan",
+  "rewind",
+  "subagents",
+];
+
+export function isGlobalInspectorTab(tab: InspectorTab): boolean {
+  return (GLOBAL_INSPECTOR_TABS as string[]).includes(tab);
+}
+
+export function isSessionInspectorTab(tab: InspectorTab): boolean {
+  return (SESSION_INSPECTOR_TABS as string[]).includes(tab);
+}
 
 export interface ContextStatsView {
   sessionId: string;
@@ -60,9 +94,13 @@ export interface SubagentView {
 
 interface Props {
   open: boolean;
+  /** global = MCP/Skills/Hooks；session = 上下文/Plan/Rewind 等 */
+  scope: InspectorScope;
   tab: InspectorTab;
   onTab: (t: InspectorTab) => void;
   onClose: () => void;
+  /** Optional label for session drawer header */
+  sessionTitle?: string | null;
   // data
   context: ContextStatsView | null;
   contextLoading?: boolean;
@@ -87,30 +125,51 @@ interface Props {
 }
 
 export function InspectorDrawer(props: Props) {
-  const { open, tab, onTab, onClose } = props;
+  const { open, scope, tab, onTab, onClose, sessionTitle } = props;
   const { t } = useI18n();
   const [selectedRewind, setSelectedRewind] = useState<number | null>(null);
 
-  const TABS: { id: InspectorTab; label: string }[] = [
+  const allTabs: { id: InspectorTab; label: string }[] = [
     { id: "context", label: t("inspector.tabContext") },
     { id: "plan", label: t("inspector.tabPlan") },
     { id: "rewind", label: t("inspector.tabRewind") },
     { id: "mcp", label: t("inspector.tabMcp") },
     { id: "skills", label: t("inspector.tabSkills") },
     { id: "hooks", label: t("inspector.tabHooks") },
-    { id: "worktree", label: t("inspector.tabWorktree") },
     { id: "subagents", label: t("inspector.tabSubagents") },
   ];
 
-  useEffect(() => {
-    if (open && tab === "context") props.onRefreshContext();
-    if (open && tab === "rewind") props.onRefreshRewind();
-    if (open && tab === "mcp") props.onRefreshMcp();
-    if (open && tab === "worktree") props.onRefreshWorktree();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, tab]);
+  const allowed =
+    scope === "global" ? GLOBAL_INSPECTOR_TABS : SESSION_INSPECTOR_TABS;
+  const TABS = allTabs.filter((x) => allowed.includes(x.id));
 
-  if (!open) return null;
+  // 切 scope 时若当前 tab 不属于该 scope，回落到首个可用 tab
+  useEffect(() => {
+    if (!open) return;
+    if (!allowed.includes(tab) && TABS[0]) {
+      onTab(TABS[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, scope]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (scope === "session") {
+      if (tab === "context") props.onRefreshContext();
+      if (tab === "rewind") props.onRefreshRewind();
+    } else if (tab === "mcp") {
+      props.onRefreshMcp();
+    }
+    // skills/hooks：打开侧栏时由 App 预取；此处不重复
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, tab, scope]);
+
+  const title =
+    scope === "global"
+      ? t("inspector.titleGlobal")
+      : sessionTitle
+        ? t("inspector.titleSessionNamed", { title: sessionTitle })
+        : t("inspector.titleSession");
 
   const usage = props.context?.contextWindowUsage;
   const used = props.context?.contextTokensUsed;
@@ -122,45 +181,54 @@ export function InspectorDrawer(props: Props) {
         ? Math.round((used / total) * 100)
         : null;
 
+  const activeTab = allowed.includes(tab) ? tab : (TABS[0]?.id || "context");
+
   return (
-    <div className="inspector-overlay" onClick={onClose}>
-      <aside
-        className="inspector-drawer"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-label={t("inspector.aria")}
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent
+        className={cn(
+          "fixed inset-y-0 right-0 left-auto top-0 flex h-full max-h-none w-[min(420px,100vw)] max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-l p-0 shadow-2xl sm:max-w-[420px]",
+          "data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right",
+        )}
+        showClose
+        aria-describedby={undefined}
       >
-        <header className="inspector-header">
-          <h3>{t("inspector.title")}</h3>
-          <button type="button" className="btn btn-sm" onClick={onClose}>
-            {t("common.close")}
-          </button>
-        </header>
-        <div className="inspector-tabs">
-          {TABS.map((tabItem) => (
-            <button
-              key={tabItem.id}
-              type="button"
-              className={tab === tabItem.id ? "on" : ""}
-              onClick={() => onTab(tabItem.id)}
-            >
-              {tabItem.label}
-            </button>
-          ))}
-        </div>
-        <div className="inspector-body">
-          {tab === "context" && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="border-b border-border px-4 py-3 pr-12">
+            <VisuallyHidden.Root>
+              <DialogTitle>{title}</DialogTitle>
+            </VisuallyHidden.Root>
+            <h3 className="inspector-title-one-line text-[14px] font-semibold" title={title}>
+              {title}
+            </h3>
+            <span className="inspector-scope-tag mt-1 inline-block">
+              {scope === "global"
+                ? t("inspector.scopeGlobal")
+                : t("inspector.scopeSession")}
+            </span>
+          </div>
+
+          <Tabs
+            value={activeTab}
+            onValueChange={(v) => onTab(v as InspectorTab)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <TabsList className="h-auto shrink-0 justify-start rounded-none px-2 py-1.5">
+              {TABS.map((tabItem) => (
+                <TabsTrigger key={tabItem.id} value={tabItem.id}>
+                  {tabItem.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="px-4 py-3 pb-6">
+          <TabsContent value="context" className="mt-0">
             <div className="insp-section">
               <div className="insp-actions">
-                <button type="button" className="btn btn-sm" onClick={props.onRefreshContext}>
+                <Button type="button" size="sm" variant="secondary" onClick={props.onRefreshContext}>
                   {t("common.refresh")}
-                </button>
-                <button type="button" className="btn btn-sm" onClick={props.onSessionInfo}>
-                  /session-info
-                </button>
-                <button type="button" className="btn btn-sm btn-primary" onClick={props.onCompact}>
-                  /compact
-                </button>
+                </Button>
               </div>
               {props.contextLoading ? (
                 <p className="muted">{t("common.loading")}</p>
@@ -204,38 +272,70 @@ export function InspectorDrawer(props: Props) {
                 <p className="muted">{t("inspector.noSessionData")}</p>
               )}
             </div>
-          )}
+          </TabsContent>
 
-          {tab === "plan" && (
-            <div className="insp-section">
-              <label className="insp-toggle">
-                <input
-                  type="checkbox"
-                  checked={props.planMode}
-                  onChange={(e) => props.onTogglePlan(e.target.checked)}
-                />
-                {t("inspector.planModeLabel")}
-              </label>
-              <p className="muted">
-                {t("inspector.planModeHint")}
-              </p>
+          <TabsContent value="plan" className="mt-0">
+            <div className="insp-section insp-plan-section">
+              <div
+                className={`insp-plan-mode-card ${props.planMode ? "on" : ""}`}
+              >
+                <div className="insp-plan-mode-head">
+                  <span className="insp-plan-mode-mark" aria-hidden>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M3.5 4h9M3.5 8h9M3.5 12h5.5"
+                        stroke="currentColor"
+                        strokeWidth="1.35"
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d="M11 10.5v3M9.5 12h3"
+                        stroke="currentColor"
+                        strokeWidth="1.35"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </span>
+                  <div className="insp-plan-mode-copy">
+                    <strong>{t("inspector.planModeLabel")}</strong>
+                    <p>{t("inspector.planModeHint")}</p>
+                  </div>
+                  <Switch
+                    checked={props.planMode}
+                    onCheckedChange={(v) => props.onTogglePlan(v)}
+                    aria-label={
+                      props.planMode
+                        ? t("app.planOnTitle")
+                        : t("app.planOffTitle")
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="insp-plan-list-head">
+                <span>{t("inspector.tabPlan")}</span>
+                {props.planMode ? (
+                  <span className="insp-plan-live-tag">{t("app.planActive")}</span>
+                ) : null}
+              </div>
+
               {props.planText ? (
-                <pre className="insp-pre">{props.planText}</pre>
+                <PlanInspectorBody text={props.planText} />
               ) : (
-                <p className="muted">{t("inspector.noPlan")}</p>
+                <p className="muted insp-plan-empty">{t("inspector.noPlan")}</p>
               )}
-              <button type="button" className="btn btn-sm" onClick={props.onFork}>
+              <Button type="button" size="sm" variant="secondary" onClick={props.onFork}>
                 {t("inspector.forkSession")}
-              </button>
+              </Button>
             </div>
-          )}
+          </TabsContent>
 
-          {tab === "rewind" && (
+          <TabsContent value="rewind" className="mt-0">
             <div className="insp-section">
               <div className="insp-actions">
-                <button type="button" className="btn btn-sm" onClick={props.onRefreshRewind}>
+                <Button type="button" size="sm" variant="secondary" onClick={props.onRefreshRewind}>
                   {t("inspector.refreshRewind")}
-                </button>
+                </Button>
               </div>
               {props.rewindLoading ? (
                 <p className="muted">{t("common.loading")}</p>
@@ -291,14 +391,14 @@ export function InspectorDrawer(props: Props) {
                 </ul>
               )}
             </div>
-          )}
+          </TabsContent>
 
-          {tab === "mcp" && (
+          <TabsContent value="mcp" className="mt-0">
             <div className="insp-section">
               <div className="insp-actions">
-                <button type="button" className="btn btn-sm" onClick={props.onRefreshMcp}>
+                <Button type="button" size="sm" variant="secondary" onClick={props.onRefreshMcp}>
                   {t("inspector.refreshMcp")}
-                </button>
+                </Button>
               </div>
               {props.mcpServers.length === 0 ? (
                 <p className="muted">{t("inspector.noMcp")}</p>
@@ -314,9 +414,9 @@ export function InspectorDrawer(props: Props) {
                 </ul>
               )}
             </div>
-          )}
+          </TabsContent>
 
-          {tab === "skills" && (
+          <TabsContent value="skills" className="mt-0">
             <div className="insp-section">
               {props.skills.length === 0 ? (
                 <p className="muted">{t("inspector.noSkills")}</p>
@@ -332,9 +432,9 @@ export function InspectorDrawer(props: Props) {
                 </ul>
               )}
             </div>
-          )}
+          </TabsContent>
 
-          {tab === "hooks" && (
+          <TabsContent value="hooks" className="mt-0">
             <div className="insp-section">
               {props.hooks.map((h, i) => (
                 <div key={i} className="hook-card">
@@ -345,23 +445,9 @@ export function InspectorDrawer(props: Props) {
                 </div>
               ))}
             </div>
-          )}
+          </TabsContent>
 
-          {tab === "worktree" && (
-            <div className="insp-section">
-              <div className="insp-actions">
-                <button type="button" className="btn btn-sm" onClick={props.onRefreshWorktree}>
-                  {t("common.refresh")}
-                </button>
-                <button type="button" className="btn btn-sm" onClick={props.onFork}>
-                  {t("inspector.forkSession")}
-                </button>
-              </div>
-              <pre className="insp-pre">{props.worktreeText || "(empty)"}</pre>
-            </div>
-          )}
-
-          {tab === "subagents" && (
+          <TabsContent value="subagents" className="mt-0">
             <div className="insp-section">
               {props.subagents.length === 0 ? (
                 <p className="muted">
@@ -379,9 +465,34 @@ export function InspectorDrawer(props: Props) {
                 </ul>
               )}
             </div>
-          )}
+          </TabsContent>
+              </div>
+            </ScrollArea>
+          </Tabs>
         </div>
-      </aside>
-    </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PlanInspectorBody({ text }: { text: string }) {
+  const entries = useMemo(() => parsePlanEntries(text), [text]);
+  if (!entries.length) {
+    return <pre className="insp-pre insp-plan-pre">{text}</pre>;
+  }
+  return (
+    <ol className="insp-plan-entries">
+      {entries.map((e, i) => (
+        <li
+          key={`${i}-${e.text.slice(0, 20)}`}
+          className={`insp-plan-entry insp-plan-entry--${e.status as PlanEntryStatus}`}
+        >
+          <span className="insp-plan-entry-mark" aria-hidden>
+            {e.status === "done" ? "✓" : e.status === "active" ? "…" : "○"}
+          </span>
+          <span className="insp-plan-entry-text">{e.text}</span>
+        </li>
+      ))}
+    </ol>
   );
 }

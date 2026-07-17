@@ -19,6 +19,47 @@ interface GrokDesktopApi {
     transcript: (sessionId: string, cwd: string) => Promise<unknown>;
     search: (query: string, limit?: number) => Promise<unknown>;
     delete: (sessionId: string, cwd?: string) => Promise<unknown>;
+    saveSnapshot: (
+      sessionId: string,
+      cwd: string,
+      snapshot: {
+        kind: "fork" | "draft";
+        title?: string;
+        parentSessionId?: string;
+        seed?: string;
+        seedConsumed?: boolean;
+        messages: Array<{
+          id: string;
+          role: string;
+          content: string;
+          toolName?: string;
+          status?: string;
+          createdAt?: string;
+          meta?: Record<string, unknown>;
+        }>;
+      },
+    ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+    readSnapshot: (
+      sessionId: string,
+      cwd?: string,
+    ) => Promise<{
+      version: 1;
+      kind: "fork" | "draft";
+      title?: string;
+      parentSessionId?: string;
+      seed?: string;
+      seedConsumed?: boolean;
+      savedAt: string;
+      messages: Array<{
+        id: string;
+        role: string;
+        content: string;
+        toolName?: string;
+        status?: string;
+        createdAt?: string;
+        meta?: Record<string, unknown>;
+      }>;
+    } | null>;
   };
   acp: {
     start: (options?: {

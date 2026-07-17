@@ -13,6 +13,7 @@ import {
 } from "./components/CommandPalette";
 import {
   InspectorDrawer,
+  type InspectorScope,
   type InspectorTab,
   type ContextStatsView,
   type HookView,
@@ -20,11 +21,17 @@ import {
   type RewindPointView,
   type SkillView,
   type SubagentView,
+  isGlobalInspectorTab,
+  isSessionInspectorTab,
 } from "./components/InspectorDrawer";
 import { AiMessageList } from "./components/AiMessageList";
 import { ChatSessionSkeleton } from "./components/ChatSessionSkeleton";
 import { PromptInputSubmit } from "./components/ai-elements/prompt-input";
 import { PanelModal } from "./components/PanelModal";
+import {
+  GlobalConfigPage,
+  type GlobalConfigKind,
+} from "./components/GlobalConfigPage";
 import { PermissionModal } from "./components/PermissionModal";
 import { ProjectTree } from "./components/ProjectTree";
 import {
@@ -210,7 +217,10 @@ export default function App() {
   const [multiline, setMultiline] = useState(false);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorScope, setInspectorScope] =
+    useState<InspectorScope>("session");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("context");
+  const [globalPage, setGlobalPage] = useState<GlobalConfigKind | null>(null);
   const [planMode, setPlanMode] = useState(false);
   const [planText, setPlanText] = useState("");
   const [contextStats, setContextStats] = useState<ContextStatsView | null>(
@@ -554,9 +564,11 @@ export default function App() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "i") {
         e.preventDefault();
-        setInspectorOpen(true);
-        void refreshContext();
-        void refreshSkillsAndHooks();
+        if (session) {
+          openSessionInspector(session, "context");
+        } else {
+          openGlobalPage("mcp");
+        }
       }
       // ⌘N — 新建对话（与命令面板 hint 一致）
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
@@ -843,6 +855,7 @@ export default function App() {
     draftNewSessionRef.current = false;
     streamingIdRef.current = null;
     thoughtIdRef.current = null;
+    // 仅清除与「当前会话无关」的 seed；同会话 fork seed 由下方 snapshot 恢复
     forkContextSeedRef.current = null;
 
     try {
@@ -870,6 +883,7 @@ export default function App() {
         /* disk transcript still loads; next prompt will create ACP session */
       }
       // TUI source of truth: ~/.grok/sessions/.../updates.jsonl
+      // 若尚无真实回合，会回退 desktop_snapshot.json（fork 消息）
       const transcript = (await window.grokDesktop.sessions.transcript(
         s.id,
         s.cwd || proj.path,
@@ -930,6 +944,19 @@ export default function App() {
         }));
 
       setMessages(restored);
+
+      // fork 且尚未消耗 seed：恢复分支上下文，供下次发送注入
+      try {
+        const snap = await window.grokDesktop.sessions.readSnapshot(
+          s.id,
+          s.cwd || proj.path,
+        );
+        if (snap?.kind === "fork" && snap.seed && !snap.seedConsumed) {
+          forkContextSeedRef.current = snap.seed;
+        }
+      } catch {
+        /* ignore */
+      }
     } catch (error) {
       setMessages([
         systemMessage(
@@ -1246,6 +1273,43 @@ export default function App() {
     setHooksList((hk as HookView[]) || []);
   }
 
+  function openGlobalPage(tab: GlobalConfigKind = "mcp"): void {
+    setInspectorOpen(false);
+    setGlobalPage(tab);
+    void refreshMcp();
+    void refreshSkillsAndHooks();
+  }
+
+  function openSessionInspector(
+    target?: SessionSummary | null,
+    tab: "context" | "plan" | "rewind" | "subagents" = "context",
+    owner?: ProjectInfo | null,
+  ): void {
+    const s = target || session;
+    if (!s) {
+      openGlobalPage("mcp");
+      return;
+    }
+    setGlobalPage(null);
+    if (owner && (!project || project.path !== owner.path)) {
+      void loadSession(s, owner);
+    } else if (!session || session.id !== s.id) {
+      const proj =
+        owner ||
+        project ||
+        ({
+          path: s.cwd,
+          name: s.cwd.split("/").pop() || s.cwd,
+        } as ProjectInfo);
+      void loadSession(s, proj);
+    }
+    setInspectorScope("session");
+    setInspectorTab(tab);
+    setInspectorOpen(true);
+    void refreshContext();
+    void refreshRewind();
+  }
+
   async function refreshWorktree(): Promise<void> {
     if (!project) {
       setWorktreeText("(no project)");
@@ -1380,25 +1444,56 @@ export default function App() {
 
     try {
       setSessionLoading(true);
+      const parentId = session?.id;
       const sid = await ensureAcpSession(project.path, true);
       forkContextSeedRef.current = seed;
       setAttachments([]);
       setInput("");
+
+      const forkTitle = `Fork · ${
+        (slice[slice.length - 1]?.content || "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 40) || "branch"
+      }`;
+      const nextMessages: ChatMessage[] = [
+        ...slice,
+        systemMessage(t("msg.forkedContinue", { sid })),
+      ];
+
       setSession({
         id: sid,
         cwd: project.path,
-        title: `Fork · ${slice[slice.length - 1]?.content?.slice(0, 32) || "branch"}`,
+        title: forkTitle,
         summary: "forked from message",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        parentSessionId: session?.id,
+        parentSessionId: parentId,
+        sessionKind: "fork",
       });
-      setMessages([
-        ...slice,
-        systemMessage(
-          t("msg.forkedContinue", { sid }),
-        ),
-      ]);
+      setMessages(nextMessages);
+
+      // 持久化到会话目录，避免切换会话后 transcript 为空导致内容消失
+      try {
+        await window.grokDesktop.sessions.saveSnapshot(sid, project.path, {
+          kind: "fork",
+          title: forkTitle,
+          parentSessionId: parentId,
+          seed,
+          messages: nextMessages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content || "",
+            toolName: m.toolName,
+            status: m.status,
+            createdAt: m.createdAt,
+            meta: m.meta as Record<string, unknown> | undefined,
+          })),
+        });
+      } catch {
+        /* snapshot best-effort */
+      }
+
       if (projectPathRef.current) {
         void loadSessionsForProject(projectPathRef.current, { force: true });
       }
@@ -1624,6 +1719,29 @@ export default function App() {
       effectivePrompt =
         t("msg.forkSeed", { seed, prompt: prompt || t("msg.userMsgAttachmentOnly") });
       forkContextSeedRef.current = null;
+      // 标记 seed 已消耗，避免切换会话后再次注入
+      if (acpSessionIdRef.current && project) {
+        void window.grokDesktop.sessions
+          .readSnapshot(acpSessionIdRef.current, project.path)
+          .then((snap) => {
+            if (!snap || !acpSessionIdRef.current || !project) return;
+            return window.grokDesktop.sessions.saveSnapshot(
+              acpSessionIdRef.current,
+              project.path,
+              {
+                kind: snap.kind,
+                title: snap.title,
+                parentSessionId: snap.parentSessionId,
+                seed: snap.seed,
+                seedConsumed: true,
+                messages: snap.messages,
+              },
+            );
+          })
+          .catch(() => {
+            /* ignore */
+          });
+      }
     }
 
     const { textPrompt, blocks } = buildPromptWithAttachments(
@@ -2181,67 +2299,113 @@ export default function App() {
   };
 
   const paletteItems: PaletteItem[] = useMemo(
-    () => [
-      {
-        id: "new",
-        label: t("palette.newChat"),
-        hint: "⌘N",
-        run: () => void createNewChat(),
-      },
-      {
-        id: "open-project",
-        label: t("palette.openProject"),
-        run: () => void openProjectPicker(),
-      },
-      {
-        id: "settings",
-        label: t("palette.settings"),
-        hint: "⌘,",
-        run: () => setSettingsOpen(true),
-      },
-      {
-        id: "inspector",
-        label: t("palette.inspector"),
-        hint: "⌘I",
-        run: () => {
-          setInspectorOpen(true);
-          void refreshContext();
-          void refreshSkillsAndHooks();
+    () => {
+      const commands: PaletteItem[] = [
+        {
+          id: "new",
+          label: t("palette.newChat"),
+          hint: "⌘N",
+          group: "command",
+          run: () => void createNewChat(),
         },
-      },
-      {
-        id: "plan-on",
-        label: t("palette.planOn"),
-        run: () => void togglePlanMode(true),
-      },
-      {
-        id: "plan-off",
-        label: t("palette.planOff"),
-        run: () => void togglePlanMode(false),
-      },
-      {
-        id: "context",
-        label: t("palette.context"),
-        run: () => void runSlashCommand("/context"),
-      },
-      {
-        id: "compact",
-        label: t("palette.compact"),
-        run: () => void runSlashCommand("/compact"),
-      },
-      {
-        id: "fork",
-        label: t("palette.fork"),
-        run: () => void forkSession(),
-      },
-      {
-        id: "theme",
-        label: themeLight ? t("palette.themeDark") : t("palette.themeLight"),
-        run: () => setThemeLight((v) => !v),
-      },
-    ],
+        {
+          id: "open-project",
+          label: t("palette.openProject"),
+          group: "command",
+          run: () => void openProjectPicker(),
+        },
+        {
+          id: "settings",
+          label: t("palette.settings"),
+          hint: "⌘,",
+          group: "command",
+          run: () => setSettingsOpen(true),
+        },
+        {
+          id: "inspector",
+          label: t("palette.inspector"),
+          hint: "⌘I",
+          group: "command",
+          run: () => {
+            if (session) openSessionInspector(session, "context");
+            else openGlobalPage("mcp");
+          },
+        },
+        {
+          id: "global-mcp",
+          label: t("tree.navMcpTitle"),
+          group: "command",
+          run: () => openGlobalPage("mcp"),
+        },
+        {
+          id: "global-skills",
+          label: t("tree.navSkillsTitle"),
+          group: "command",
+          run: () => openGlobalPage("skills"),
+        },
+        {
+          id: "global-hooks",
+          label: t("tree.navHooksTitle"),
+          group: "command",
+          run: () => openGlobalPage("hooks"),
+        },
+        {
+          id: "plan-on",
+          label: t("palette.planOn"),
+          group: "command",
+          run: () => void togglePlanMode(true),
+        },
+        {
+          id: "plan-off",
+          label: t("palette.planOff"),
+          group: "command",
+          run: () => void togglePlanMode(false),
+        },
+        {
+          id: "context",
+          label: t("palette.context"),
+          group: "command",
+          run: () => void runSlashCommand("/context"),
+        },
+        {
+          id: "compact",
+          label: t("palette.compact"),
+          group: "command",
+          run: () => void runSlashCommand("/compact"),
+        },
+        {
+          id: "fork",
+          label: t("palette.fork"),
+          group: "command",
+          run: () => void forkSession(),
+        },
+        {
+          id: "theme",
+          label: themeLight ? t("palette.themeDark") : t("palette.themeLight"),
+          group: "command",
+          run: () => setThemeLight((v) => !v),
+        },
+      ];
+      const sessions: PaletteItem[] = (sessionSearchResults || []).map((s) => ({
+        id: `session-${s.id}`,
+        label: s.title || s.id.slice(0, 8),
+        hint: s.cwd.split("/").pop() || s.cwd,
+        group: "session" as const,
+        run: () => {
+          const proj =
+            projects.find((p) => p.path === s.cwd) ||
+            ({
+              path: s.cwd,
+              name: s.cwd.split("/").pop() || s.cwd,
+            } as ProjectInfo);
+          void loadSession(s, proj);
+          setGlobalPage(null);
+        },
+      }));
+      return [...commands, ...sessions];
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [themeLight, project, model, t, locale],
+    [themeLight, project, model, t, locale, session, sessionSearchResults, projects],
   );
 
   const shortPath = (p?: string | null) => {
@@ -2290,13 +2454,31 @@ export default function App() {
             </h2>
             <p title={project?.path || ""}>
               {shortPath(project?.path)}
-              {planMode ? " · Plan" : ""}
               {alwaysApprove ? t("app.alwaysApproveSuffix") : ""}
               {" · "}
               {model}
             </p>
           </div>
           <div className="titlebar-actions titlebar-no-drag">
+            {planMode ? (
+              <span
+                className="status-pill plan-mode-pill"
+                title={t("app.planOnTitle")}
+              >
+                <span className="plan-mode-pill-icon" aria-hidden>
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                    <path
+                      d="M3.5 4h9M3.5 8h9M3.5 12h6"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                    />
+                    <circle cx="12.5" cy="12" r="1.6" fill="currentColor" />
+                  </svg>
+                </span>
+                {t("common.plan")}
+              </span>
+            ) : null}
             <span
               className={`status-pill ${connectionStatus.tone === "warn" ? "warn" : connectionStatus.tone}`}
               title={
@@ -2330,6 +2512,16 @@ export default function App() {
                 {t("common.stop")}
               </button>
             ) : null}
+            {session ? (
+              <button
+                type="button"
+                className="btn btn-sm titlebar-session-detail"
+                title={t("tree.openSessionInspectorTitle")}
+                onClick={() => openSessionInspector(session, "context")}
+              >
+                {t("tree.openSessionInspector")}
+              </button>
+            ) : null}
           </div>
         </div>
       </header>
@@ -2343,35 +2535,50 @@ export default function App() {
           activeSessionId={session?.id || null}
           loadingPath={loadingSessionsPath}
           loadingSessionId={sessionLoading ? session?.id || null : null}
-          searchQuery={sessionSearch}
-          searchResults={sessionSearchResults}
-          searchLoading={sessionSearchLoading}
-          onSearchQueryChange={onSessionSearchQueryChange}
           onToggleProject={(p) => void toggleProject(p)}
-          onSelectSession={(p, s) => void loadSession(s, p)}
+          onSelectSession={(p, s) => {
+            setGlobalPage(null);
+            void loadSession(s, p);
+          }}
           onDeleteSession={(p, s) => void deleteSession(p, s)}
           onOpenFolder={() => void openProjectPicker()}
           onRefresh={() => {
             void refreshProjects();
             if (project) void loadSessionsForProject(project.path, { force: true });
-            if (sessionSearch.trim()) onSessionSearchQueryChange(sessionSearch);
           }}
-          onNewChat={() => void createNewChat()}
-          onNewChatInProject={(p) => void createNewChat(p)}
+          onNewChat={() => {
+            setGlobalPage(null);
+            void createNewChat();
+          }}
+          onNewChatInProject={(p) => {
+            setGlobalPage(null);
+            void createNewChat(p);
+          }}
           onPinProject={(p, pinned) => void pinProject(p, pinned)}
           onRemoveProject={(p) => void removeProjectFromList(p)}
           onRevealInFinder={(p) => void revealProjectInFinder(p)}
-          onOpenInspector={() => {
-            setInspectorOpen(true);
-            void refreshContext();
-            void refreshSkillsAndHooks();
-            void refreshMcp();
-          }}
+          onOpenGlobalPage={(tab) => openGlobalPage(tab)}
+          onOpenSearch={() => setPaletteOpen(true)}
+          onOpenSessionInspector={(proj, s, tab) =>
+            openSessionInspector(s, tab || "context", proj)
+          }
           onOpenSettings={() => setSettingsOpen(true)}
+          themeLight={themeLight}
+          onToggleTheme={() => setThemeLight((v) => !v)}
         />
 
         <section className="chat">
-          {sessionLoading ? (
+          {globalPage ? (
+            <GlobalConfigPage
+              kind={globalPage}
+              mcpServers={mcpServers}
+              skills={skillsList}
+              hooks={hooksList}
+              onRefreshMcp={() => void refreshMcp()}
+              onRefreshSkillsHooks={() => void refreshSkillsAndHooks()}
+              onClose={() => setGlobalPage(null)}
+            />
+          ) : sessionLoading ? (
             <ChatSessionSkeleton />
           ) : (
           <AiMessageList
@@ -2388,7 +2595,9 @@ export default function App() {
           />
           )}
 
+          {!globalPage ? (
           <div className="composer-wrap">
+            <div className="chat-col">
             {showSlash ? (
               <SlashMenu
                 items={slashItems}
@@ -2548,13 +2757,29 @@ export default function App() {
                         ? t("app.planOnTitle")
                         : t("app.planOffTitle")
                     }
+                    aria-pressed={planMode}
                     disabled={!project || sessionLoading}
                   >
                     <span className="plan-chip-icon" aria-hidden>
-                      ⌖
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                        <path
+                          d="M3.5 4h9M3.5 8h9M3.5 12h5.5"
+                          stroke="currentColor"
+                          strokeWidth="1.35"
+                          strokeLinecap="round"
+                        />
+                        <path
+                          d="M11 10.5v3M9.5 12h3"
+                          stroke="currentColor"
+                          strokeWidth="1.35"
+                          strokeLinecap="round"
+                        />
+                      </svg>
                     </span>
-                    {t("common.plan")}
-                    {planMode ? <span className="plan-chip-dot" /> : null}
+                    <span className="plan-chip-label">{t("common.plan")}</span>
+                    {planMode ? (
+                      <span className="plan-chip-state">{t("app.planActive")}</span>
+                    ) : null}
                   </button>
                   <select
                     className="inline-select"
@@ -2569,21 +2794,25 @@ export default function App() {
                       </option>
                     ))}
                   </select>
-                  <select
-                    className="inline-select"
-                    value={effort}
-                    onChange={(e) => setEffort(e.target.value as EffortLevel)}
-                    title={t("app.effortTitle")}
-                    aria-label={t("app.effortTitle")}
-                  >
-                    <option value="low">{t("app.effortOption", { label: t("settings.effortLow") })}</option>
-                    <option value="medium">{t("app.effortOption", { label: t("settings.effortMedium") })}</option>
-                    <option value="high">{t("app.effortOption", { label: t("settings.effortHigh") })}</option>
-                    <option value="xhigh">{t("app.effortOption", { label: t("settings.effortXhigh") })}</option>
-                    <option value="max">{t("app.effortOption", { label: t("settings.effortMax") })}</option>
-                  </select>
+                  <label className="composer-control" title={t("app.effortTitle")}>
+                    <span className="composer-control-label">
+                      {t("settings.effort")}
+                    </span>
+                    <select
+                      className="inline-select composer-effort-select"
+                      value={effort}
+                      onChange={(e) => setEffort(e.target.value as EffortLevel)}
+                      aria-label={t("app.effortTitle")}
+                    >
+                      <option value="low">{t("settings.effortLow")}</option>
+                      <option value="medium">{t("settings.effortMedium")}</option>
+                      <option value="high">{t("settings.effortHigh")}</option>
+                      <option value="xhigh">{t("settings.effortXhigh")}</option>
+                      <option value="max">{t("settings.effortMax")}</option>
+                    </select>
+                  </label>
                   <label
-                    className={`inline-check${alwaysApprove ? " danger-on" : ""}`}
+                    className={`inline-check composer-approve${alwaysApprove ? " danger-on" : ""}`}
                     title={t("app.alwaysApproveRisk")}
                   >
                     <input
@@ -2591,13 +2820,8 @@ export default function App() {
                       checked={alwaysApprove}
                       onChange={(e) => setAlwaysApprove(e.target.checked)}
                     />
-                    {t("settings.alwaysApprove")}
+                    <span>{t("app.alwaysApproveShort")}</span>
                   </label>
-                  <span className="dim" title={appInfo?.grokHome || ""}>
-                    {appInfo
-                      ? appInfo.grokHome.replace(/^\/Users\/[^/]+/, "~")
-                      : ""}
-                  </span>
                 </div>
                 <div className="composer-actions">
                   <button
@@ -2625,7 +2849,9 @@ export default function App() {
                 </div>
               </div>
             </div>
+            </div>
           </div>
+          ) : null}
         </section>
       </div>
 
@@ -2680,14 +2906,28 @@ export default function App() {
       <CommandPalette
         open={paletteOpen}
         items={paletteItems}
-        onClose={() => setPaletteOpen(false)}
+        onClose={() => {
+          setPaletteOpen(false);
+          onSessionSearchQueryChange("");
+        }}
+        onQueryChange={(q) => onSessionSearchQueryChange(q)}
       />
 
       <InspectorDrawer
         open={inspectorOpen}
-        tab={inspectorTab}
-        onTab={setInspectorTab}
+        scope="session"
+        tab={isSessionInspectorTab(inspectorTab) ? inspectorTab : "context"}
+        onTab={(tab) => {
+          if (isGlobalInspectorTab(tab)) {
+            setInspectorOpen(false);
+            openGlobalPage(tab as GlobalConfigKind);
+            return;
+          }
+          setInspectorScope("session");
+          setInspectorTab(tab);
+        }}
         onClose={() => setInspectorOpen(false)}
+        sessionTitle={session?.title || session?.id || null}
         context={contextStats}
         contextLoading={contextLoading}
         onRefreshContext={() => void refreshContext()}
