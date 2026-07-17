@@ -1,0 +1,224 @@
+/* Syntax highlighting theme — tuned for Grok Desktop mono graphite UI */
+
+.hljs {
+  color: #d6d3cb;
+  background: transparent;
+  display: block;
+  overflow-x: auto;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #6a6864;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-addition {
+  color: #c792ea;
+}
+
+.hljs-number,
+.hljs-string,
+.hljs-meta .hljs-meta-string,
+.hljs-literal,
+.hljs-doctag,
+.hljs-regexp {
+  color: #c3e88d;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: #82aaff;
+}
+
+.hljs-attribute,
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-class .hljs-title,
+.hljs-type {
+  color: #ffcb6b;
+}
+
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-meta,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+  color: #89ddff;
+}
+
+.hljs-built_in,
+.hljs-deletion {
+  color: #f07178;
+}
+
+.hljs-params {
+  color: #d6d3cb;
+}
+
+.hljs-function .hljs-title,
+.hljs-title.function_ {
+  color: #82aaff;
+}
+
+.hljs-property,
+.hljs-operator {
+  color: #89ddff;
+}
+
+.hljs-punctuation {
+  color: #8b97a8;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}
+
+/* Diff lines — row tint (diff) + hljs tokens inside (syntax) */
+.diff-view {
+  white-space: pre;
+  line-height: 1.5;
+  display: block;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12.5px;
+  /* 基色给未匹配 token；hljs-* 自带颜色 */
+  color: #d6d3cb;
+}
+
+.diff-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  padding: 0 8px 0 0;
+  margin: 0 -4px;
+  border-radius: 0;
+  min-height: 1.5em;
+}
+
+.diff-line .diff-sign {
+  flex: 0 0 1.25em;
+  text-align: center;
+  user-select: none;
+  opacity: 0.95;
+  font-weight: 600;
+  /* 不继承到代码，避免冲掉语法色 */
+  color: inherit;
+}
+
+.diff-line .diff-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* 语法 token 颜色由 .hljs-* 决定，不在此强制 color */
+}
+
+/* 仅背景区分增减，正文保留语法高亮 */
+.diff-line.add {
+  background: rgba(63, 185, 80, 0.12);
+}
+
+.diff-line.add .diff-sign {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.14);
+}
+
+.diff-line.del {
+  background: rgba(248, 81, 73, 0.12);
+}
+
+.diff-line.del .diff-sign {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.14);
+}
+
+.diff-line.ctx {
+  background: transparent;
+}
+
+.diff-line.ctx .diff-sign {
+  color: #6a6864;
+}
+
+/* 删除行略降饱和，仍可见 token */
+.diff-line.del .diff-text {
+  opacity: 0.92;
+}
+
+.diff-code {
+  max-height: 420px;
+}
+
+.hljs-pre {
+  margin: 0;
+}
+
+/* Light theme overrides */
+:root[data-theme="light"] .hljs {
+  color: #2a2824;
+}
+
+:root[data-theme="light"] .hljs-comment,
+:root[data-theme="light"] .hljs-quote {
+  color: #8e8b83;
+}
+
+:root[data-theme="light"] .hljs-keyword,
+:root[data-theme="light"] .hljs-selector-tag {
+  color: #7c3aed;
+}
+
+:root[data-theme="light"] .hljs-string,
+:root[data-theme="light"] .hljs-number,
+:root[data-theme="light"] .hljs-literal {
+  color: #0d7a3e;
+}
+
+:root[data-theme="light"] .hljs-title,
+:root[data-theme="light"] .hljs-function .hljs-title,
+:root[data-theme="light"] .hljs-title.function_ {
+  color: #1d4ed8;
+}
+
+:root[data-theme="light"] .hljs-attr,
+:root[data-theme="light"] .hljs-attribute,
+:root[data-theme="light"] .hljs-type {
+  color: #b45309;
+}
+
+:root[data-theme="light"] .diff-view {
+  color: #2a2824;
+}
+
+:root[data-theme="light"] .diff-line.add {
+  background: rgba(26, 127, 55, 0.1);
+}
+
+:root[data-theme="light"] .diff-line.add .diff-sign {
+  color: #1a7f37;
+  background: rgba(26, 127, 55, 0.08);
+}
+
+:root[data-theme="light"] .diff-line.del {
+  background: rgba(207, 34, 46, 0.1);
+}
+
+:root[data-theme="light"] .diff-line.del .diff-sign {
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.08);
+}
+
+:root[data-theme="light"] .diff-line.ctx .diff-sign {
+  color: #8e8b83;
+}

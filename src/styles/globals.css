@@ -1,0 +1,197 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Streamdown / AI Elements need full source scanning */
+@source "../**/*.{ts,tsx}";
+@source "../../node_modules/streamdown/dist/**/*.js";
+@source "../../node_modules/@streamdown/**/*.js";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* Dark graphite theme (app default) */
+:root,
+.dark {
+  --radius: 0.625rem;
+  --background: #0a0a0a;
+  --foreground: #ece9e2;
+  --card: #131313;
+  --card-foreground: #ece9e2;
+  --popover: #181818;
+  --popover-foreground: #ece9e2;
+  --primary: #ece9e2;
+  --primary-foreground: #131313;
+  --secondary: #1e1e1e;
+  --secondary-foreground: #ece9e2;
+  --muted: #1e1e1e;
+  --muted-foreground: #999692;
+  --accent: #1e1e1e;
+  --accent-foreground: #ece9e2;
+  --destructive: #c26c6c;
+  --border: #232323;
+  --input: #2d2d2d;
+  --ring: #6a6864;
+}
+
+/* Light theme */
+:root[data-theme="light"],
+.light {
+  --background: #f6f3ec;
+  --foreground: #1f1d19;
+  --card: #fbf9f3;
+  --card-foreground: #1f1d19;
+  --popover: #ffffff;
+  --popover-foreground: #1f1d19;
+  --primary: #1f1d19;
+  --primary-foreground: #f6f3ec;
+  --secondary: #e8e4d9;
+  --secondary-foreground: #1f1d19;
+  --muted: #e8e4d9;
+  --muted-foreground: #5c5953;
+  --accent: #e8e4d9;
+  --accent-foreground: #1f1d19;
+  --destructive: #b05a5a;
+  --border: #e1dcce;
+  --input: #d4cfbe;
+  --ring: #8e8b83;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Streamdown / AI Elements message prose — flat single-shell cards */
+@layer components {
+  .ai-msg-prose,
+  [data-streamdown] {
+    @apply text-sm leading-relaxed;
+  }
+
+  /* Code block: single outer border; kill nested Streamdown layers */
+  [data-streamdown="code-block"] {
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    background: color-mix(in oklab, var(--muted) 40%, transparent) !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    margin: 0.75rem 0 !important;
+  }
+
+  [data-streamdown="code-block"] pre,
+  [data-streamdown="code-block"] code,
+  [data-streamdown="code-block"] > div,
+  [data-streamdown="code-block"] [class*="rounded"],
+  [data-streamdown="code-block"] [class*="border"],
+  [data-streamdown="code-block"] [class*="p-2"],
+  [data-streamdown="code-block"] [class*="p-3"] {
+    border: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  [data-streamdown="code-block"] pre {
+    overflow-x: auto !important;
+    margin: 0 !important;
+    padding: 0.75rem !important;
+    font-size: 12px !important;
+  }
+
+  [data-streamdown="code-block-actions"],
+  [data-streamdown="code-block"] [data-streamdown="code-block-actions"] {
+    display: none !important;
+  }
+
+  /* Table: one wrapper border */
+  [data-streamdown="table-wrapper"] {
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    overflow: auto !important;
+    margin: 0.75rem 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  [data-streamdown="table-wrapper"] table,
+  [data-streamdown="table-wrapper"] > div {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+
+  /* Inline code (not inside fenced blocks) */
+  [data-streamdown] code:not(pre code):not([data-streamdown="code-block"] code) {
+    @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em];
+  }
+
+  /* Standalone pre outside code-block shell (fallback) */
+  [data-streamdown] pre:not([data-streamdown="code-block"] pre) {
+    @apply overflow-x-auto rounded-md border border-border bg-muted/40 p-3 text-[12px];
+  }
+
+  [data-streamdown] a {
+    @apply text-foreground underline underline-offset-2 opacity-90 hover:opacity-100;
+  }
+
+  [data-streamdown] ul,
+  [data-streamdown] ol {
+    @apply my-2 pl-5;
+  }
+
+  [data-streamdown] li {
+    @apply my-0.5;
+  }
+
+  [data-streamdown] h1,
+  [data-streamdown] h2,
+  [data-streamdown] h3 {
+    @apply mt-4 mb-2 font-semibold tracking-tight;
+  }
+
+  [data-streamdown] p {
+    @apply my-2;
+  }
+
+  [data-streamdown] blockquote {
+    @apply border-l-2 border-border pl-3 text-muted-foreground;
+  }
+
+  [data-streamdown] table {
+    @apply my-0 w-full border-collapse text-xs;
+  }
+
+  [data-streamdown] th,
+  [data-streamdown] td {
+    @apply border border-border px-2 py-1 text-left;
+  }
+}
