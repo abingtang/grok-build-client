@@ -1,19 +1,5 @@
+import { useI18n } from "../i18n";
 import type { PanelId } from "../lib/types";
-
-const TITLES: Record<Exclude<PanelId, null>, string> = {
-  sessions: "会话",
-  settings: "设置",
-  history: "提示历史",
-  docs: "文档",
-  hooks: "Hooks",
-  plugins: "Plugins",
-  marketplace: "Marketplace",
-  skills: "Skills",
-  mcps: "MCP Servers",
-  agents: "Agents",
-  personas: "Personas",
-  rewind: "Rewind",
-};
 
 interface Props {
   panel: Exclude<PanelId, null>;
@@ -22,13 +8,30 @@ interface Props {
 }
 
 export function PanelModal({ panel, body, onClose }: Props) {
+  const { t } = useI18n();
+
+  const titles: Record<Exclude<PanelId, null>, string> = {
+    sessions: t("panel.sessions"),
+    settings: t("panel.settings"),
+    history: t("panel.history"),
+    docs: t("panel.docs"),
+    hooks: "Hooks",
+    plugins: "Plugins",
+    marketplace: "Marketplace",
+    skills: "Skills",
+    mcps: "MCP Servers",
+    agents: "Agents",
+    personas: "Personas",
+    rewind: "Rewind",
+  };
+
   return (
     <div className="overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <header>
-          <h3>{TITLES[panel]}</h3>
+          <h3>{titles[panel]}</h3>
           <button type="button" className="btn btn-sm" onClick={onClose}>
-            关闭
+            {t("common.close")}
           </button>
         </header>
         <div className="body">{body}</div>

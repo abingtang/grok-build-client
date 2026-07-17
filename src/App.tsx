@@ -38,7 +38,7 @@ import {
   type PermissionMode,
   type ReasoningEffort,
 } from "./lib/grokArgs";
-import { toChatStatus } from "./lib/grok-ui";
+import { runStatusLabel, toChatStatus } from "./lib/grok-ui";
 import type {
   AcpStatus,
   ChatMessage,
@@ -50,6 +50,7 @@ import type {
   SlashCommandDef,
 } from "./lib/types";
 import { streamBuffer } from "./lib/streamBuffer";
+import { rt, useI18n } from "./i18n";
 
 const MAX_ATTACHMENTS = 8;
 const MAX_IMAGE_INLINE_BYTES = 4 * 1024 * 1024;
@@ -101,8 +102,8 @@ function buildPromptWithAttachments(
   const pathLines = attachments.map(
     (a) => `- ${a.name}: ${a.path}${a.isImage ? " (image)" : ""}`,
   );
-  const suffix = `\n\n[附件]\n${pathLines.join("\n")}\n请读取上述路径中的文件/图片内容后再回答。`;
-  const textPrompt = (text || "请查看附件。") + suffix;
+  const suffix = rt("msg.attachSuffix", { paths: pathLines.join("\n") });
+  const textPrompt = (text || rt("msg.attachPromptFallback")) + suffix;
   const blocks: Array<
     | { type: "text"; text: string }
     | { type: "image"; data: string; mimeType: string; uri?: string }
@@ -155,6 +156,7 @@ function loadLS(key: string, fallback: string): string {
 }
 
 export default function App() {
+  const { t, locale, setLocale } = useI18n();
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   /** Codex-style: sessions nested under each project path */
   const [sessionsByProject, setSessionsByProject] = useState<
@@ -186,6 +188,7 @@ export default function App() {
   const [slashIndex, setSlashIndex] = useState(0);
   const [showSlash, setShowSlash] = useState(false);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [runLabel, setRunLabel] = useState<string | null>(null);
   const [queue, setQueue] = useState<string[]>([]);
   const [status, setStatus] = useState<AcpStatus>({
@@ -194,6 +197,9 @@ export default function App() {
     cwd: null,
   });
   const [permission, setPermission] = useState<PermissionRequest | null>(null);
+  const cancelForceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [panel, setPanel] = useState<PanelId>(null);
   const [panelBody, setPanelBody] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -425,6 +431,11 @@ export default function App() {
     return streamBuffer.subscribe(applySnapshot);
   }, []);
 
+  // Keep ref in sync for keyboard / cancel force-unlock
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+
   // Elapsed timer while busy
   useEffect(() => {
     if (!busy) {
@@ -450,15 +461,21 @@ export default function App() {
         }
         setGrokReady(Boolean(st.connected || st.bin));
       }),
-      window.grokDesktop.acp.onPermission((p) =>
-        setPermission(p as PermissionRequest),
-      ),
+      window.grokDesktop.acp.onPermission((p) => {
+        setPermission(p as PermissionRequest);
+        setRunLabel(t("status.waitingApprove"));
+      }),
       window.grokDesktop.acp.onExit(() => {
         acpSessionIdRef.current = null;
         setStatus((prev) => ({ ...prev, connected: false, sessionId: null }));
         setBusy(false);
         setRunLabel(null);
         setStreamPhase("idle");
+        setPermission(null);
+        if (cancelForceTimerRef.current) {
+          clearTimeout(cancelForceTimerRef.current);
+          cancelForceTimerRef.current = null;
+        }
       }),
       window.grokDesktop.acp.onSessionUpdate((raw) => {
         handleAcpSessionUpdate(raw);
@@ -475,17 +492,19 @@ export default function App() {
         };
         if (event.type === "text" && event.data) {
           streamBuffer.appendText(event.data);
-          setRunLabel("生成中");
+          setRunLabel(t("status.writing"));
         } else if (event.type === "thought" && event.data) {
           streamBuffer.appendThought(event.data);
-          setRunLabel("思考中");
+          setRunLabel(t("status.thinking"));
         } else if (event.type === "end" && event.sessionId) {
           headlessSessionIdRef.current = event.sessionId;
           continueRef.current = true;
         } else if (event.type === "error" && event.message) {
           setMessages((m) => [
             ...m,
-            systemMessage(`运行错误: ${event.message}`),
+            systemMessage(
+              t("msg.runError", { msg: event.message || "" }),
+            ),
           ]);
         }
       }),
@@ -499,14 +518,17 @@ export default function App() {
         if (runtimeModeRef.current !== "headless") return;
         if (st.state === "running") {
           setBusy(true);
-          setRunLabel("连接中");
+          setRunLabel(t("status.connecting"));
         } else {
           finalizeAcpTurn();
           if (st.state === "failed" && st.error) {
-            setMessages((m) => [...m, systemMessage(`失败: ${st.error}`)]);
+            setMessages((m) => [
+              ...m,
+              systemMessage(t("msg.failed", { msg: st.error || "" })),
+            ]);
           }
           if (st.state === "cancelled") {
-            setMessages((m) => [...m, systemMessage("已取消运行")]);
+            setMessages((m) => [...m, systemMessage(t("msg.cancelled"))]);
           }
         }
       }),
@@ -536,10 +558,29 @@ export default function App() {
         void refreshContext();
         void refreshSkillsAndHooks();
       }
+      // ⌘N — 新建对话（与命令面板 hint 一致）
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        void createNewChat();
+      }
+      // Esc：无弹层时停止当前回合（权限/设置/命令面板有各自 Esc）
+      if (
+        e.key === "Escape" &&
+        !permission &&
+        !settingsOpen &&
+        !paletteOpen &&
+        !inspectorOpen &&
+        !panel &&
+        busyRef.current
+      ) {
+        e.preventDefault();
+        void cancelTurn();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [permission, settingsOpen, paletteOpen, inspectorOpen, panel]);
 
   function appendOrUpdate(
     role: ChatMessage["role"],
@@ -730,7 +771,7 @@ export default function App() {
       setMessages((m) => [
         ...m,
         systemMessage(
-          `置顶失败: ${e instanceof Error ? e.message : String(e)}`,
+          t("msg.pinFailed", { msg: e instanceof Error ? e.message : String(e) }),
         ),
       ]);
     }
@@ -755,7 +796,7 @@ export default function App() {
       if (project?.path === p.path) {
         setProject(null);
         setSession(null);
-        setMessages([systemMessage("项目已从列表移除。")]);
+        setMessages([systemMessage(t("msg.projectRemoved"))]);
         acpSessionIdRef.current = null;
         headlessSessionIdRef.current = null;
       }
@@ -763,7 +804,7 @@ export default function App() {
       setMessages((m) => [
         ...m,
         systemMessage(
-          `移除项目失败: ${e instanceof Error ? e.message : String(e)}`,
+          t("msg.removeProjectFailed", { msg: e instanceof Error ? e.message : String(e) }),
         ),
       ]);
     }
@@ -782,7 +823,7 @@ export default function App() {
       setMessages((m) => [
         ...m,
         systemMessage(
-          `无法在 Finder 中显示: ${e instanceof Error ? e.message : String(e)}`,
+          t("msg.revealFailed", { msg: e instanceof Error ? e.message : String(e) }),
         ),
       ]);
     }
@@ -892,7 +933,7 @@ export default function App() {
     } catch (error) {
       setMessages([
         systemMessage(
-          `加载会话失败: ${error instanceof Error ? error.message : String(error)}`,
+          t("msg.loadSessionFailed", { msg: error instanceof Error ? error.message : String(error) }),
         ),
       ]);
     } finally {
@@ -946,19 +987,19 @@ export default function App() {
     if (!su) return;
 
     if (su === "agent_message_chunk" || su === "agent_message") {
-      const t = extractUpdateText(update.content);
-      if (t) {
-        streamBuffer.appendText(t);
-        setRunLabel("生成中");
+      const chunk = extractUpdateText(update.content);
+      if (chunk) {
+        streamBuffer.appendText(chunk);
+        setRunLabel(t("status.writing"));
         setStreamPhase("writing");
       }
       return;
     }
     if (su === "agent_thought_chunk" || su === "agent_thought") {
-      const t = extractUpdateText(update.content);
-      if (t) {
-        streamBuffer.appendThought(t);
-        setRunLabel("思考中");
+      const chunk = extractUpdateText(update.content);
+      if (chunk) {
+        streamBuffer.appendThought(chunk);
+        setRunLabel(t("status.thinking"));
         setStreamPhase("thinking");
       }
       return;
@@ -1015,7 +1056,7 @@ export default function App() {
           },
         },
       ]);
-      setRunLabel(`工具: ${title}`);
+      setRunLabel(t("status.toolPrefix", { title }));
       return;
     }
     if (su === "tool_call_update") {
@@ -1221,14 +1262,14 @@ export default function App() {
     try {
       const sid = await ensureAcpSession(project.path, false);
       setBusy(true);
-      setRunLabel(`运行 ${cmd}`);
+      setRunLabel(t("status.runCmd", { cmd }));
       await window.grokDesktop.acp.prompt(cmd, sid);
       finalizeAcpTurn();
     } catch (e) {
       setMessages((m) => [
         ...m,
         systemMessage(
-          `${cmd} 失败: ${e instanceof Error ? e.message : String(e)}`,
+          t("msg.cmdFailed", { cmd, msg: e instanceof Error ? e.message : String(e) }),
         ),
       ]);
       setBusy(false);
@@ -1258,9 +1299,14 @@ export default function App() {
       return [
         ...kept,
         systemMessage(
-          `Rewind #${promptIndex}: 已恢复 ${result.written?.length || 0} 个文件` +
+          t("msg.rewindRestored", {
+            index: promptIndex,
+            n: result.written?.length || 0,
+          }) +
             (result.errors?.length
-              ? `\n错误: ${result.errors.join("; ")}`
+              ? t("msg.rewindErrors", {
+                  errors: result.errors.join("; "),
+                })
               : ""),
         ),
       ];
@@ -1290,13 +1336,13 @@ export default function App() {
    */
   async function forkFromMessage(messageId: string): Promise<void> {
     if (!project) {
-      setMessages((m) => [...m, systemMessage("请先选择项目目录。")]);
+      setMessages((m) => [...m, systemMessage(t("msg.selectProjectFirst"))]);
       return;
     }
     if (busy) {
       setMessages((m) => [
         ...m,
-        systemMessage("请等待当前回合结束后再 fork。"),
+        systemMessage(t("msg.waitBeforeFork")),
       ]);
       return;
     }
@@ -1316,7 +1362,7 @@ export default function App() {
     if (!slice.length) {
       setMessages((m) => [
         ...m,
-        systemMessage("该消息之前没有可 fork 的对话上下文。"),
+        systemMessage(t("msg.noForkContext")),
       ]);
       return;
     }
@@ -1350,7 +1396,7 @@ export default function App() {
       setMessages([
         ...slice,
         systemMessage(
-          `已在新任务中继续（fork）\n会话 ${sid}\n上下文已保留到所选消息；下一条发送会带上分支上下文。`,
+          t("msg.forkedContinue", { sid }),
         ),
       ]);
       if (projectPathRef.current) {
@@ -1361,7 +1407,7 @@ export default function App() {
       setMessages((m) => [
         ...m,
         systemMessage(
-          `Fork 失败: ${error instanceof Error ? error.message : String(error)}`,
+          t("msg.forkFailed", { msg: error instanceof Error ? error.message : String(error) }),
         ),
       ]);
     } finally {
@@ -1422,7 +1468,7 @@ export default function App() {
       setMessages((m) => [
         ...m,
         systemMessage(
-          `选择文件失败: ${e instanceof Error ? e.message : String(e)}`,
+          t("msg.pickFilesFailed", { msg: e instanceof Error ? e.message : String(e) }),
         ),
       ]);
     }
@@ -1435,7 +1481,7 @@ export default function App() {
     if (attachments.length >= MAX_ATTACHMENTS) {
       setMessages((m) => [
         ...m,
-        systemMessage(`最多 ${MAX_ATTACHMENTS} 个附件。`),
+        systemMessage(t("msg.maxAttachments", { n: MAX_ATTACHMENTS })),
       ]);
       return;
     }
@@ -1486,7 +1532,7 @@ export default function App() {
       setMessages((m) => [
         ...m,
         systemMessage(
-          `添加附件失败: ${e instanceof Error ? e.message : String(e)}`,
+          t("msg.addAttachmentFailed", { msg: e instanceof Error ? e.message : String(e) }),
         ),
       ]);
     }
@@ -1557,7 +1603,7 @@ export default function App() {
     pendingAttachments: MessageAttachment[] = [],
   ): Promise<void> {
     if (!project) {
-      setMessages((m) => [...m, systemMessage("请先选择项目目录。")]);
+      setMessages((m) => [...m, systemMessage(t("msg.selectProjectFirst"))]);
       return;
     }
     if (!prompt.trim() && !pendingAttachments.length) return;
@@ -1566,7 +1612,7 @@ export default function App() {
       setQueue((q) => [...q, prompt]);
       setMessages((m) => [
         ...m,
-        systemMessage(`已加入队列（#${queue.length + 1}）`),
+        systemMessage(t("msg.queued", { n: queue.length + 1 })),
       ]);
       return;
     }
@@ -1576,7 +1622,7 @@ export default function App() {
     const seed = forkContextSeedRef.current;
     if (seed) {
       effectivePrompt =
-        `[会话分支上下文 — 请基于以下对话继续，不要复述整段历史]\n\n${seed}\n\n---\n\n用户新消息：\n${prompt || "（仅附件，请查看附件）"}`;
+        t("msg.forkSeed", { seed, prompt: prompt || t("msg.userMsgAttachmentOnly") });
       forkContextSeedRef.current = null;
     }
 
@@ -1600,7 +1646,7 @@ export default function App() {
       {
         id: userId,
         role: "user",
-        content: prompt || (pendingAttachments.length ? "（附件）" : ""),
+        content: prompt || (pendingAttachments.length ? t("msg.attachmentOnly") : ""),
         createdAt: new Date().toISOString(),
         attachments: pendingAttachments.length
           ? pendingAttachments.map((a) => ({
@@ -1624,7 +1670,7 @@ export default function App() {
     ]);
     streamBuffer.begin({ thoughtId, textId });
     setBusy(true);
-    setRunLabel("Agent 连接中");
+    setRunLabel(t("status.agentConnecting"));
     runtimeModeRef.current = "acp";
 
     try {
@@ -1636,14 +1682,14 @@ export default function App() {
           /* mode optional */
         }
       }
-      setRunLabel("Agent 运行中");
+      setRunLabel(t("status.agentRunning"));
       setSession((prev) =>
         prev
           ? prev
           : {
               id: sid,
               cwd: project.path,
-              title: (prompt || "附件").slice(0, 48),
+              title: (prompt || t("msg.attachmentOnly")).slice(0, 48),
               summary: "",
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
@@ -1683,7 +1729,7 @@ export default function App() {
       const msg = error instanceof Error ? error.message : String(error);
       setMessages((m) => [
         ...m,
-        systemMessage(`ACP 回合失败，回退 headless：${msg}`),
+        systemMessage(t("msg.acpFallback", { msg })),
       ]);
       runtimeModeRef.current = "headless";
       try {
@@ -1701,14 +1747,18 @@ export default function App() {
         setMessages((m) => [
           ...m.filter((x) => x.id !== textId && x.id !== thoughtId),
           systemMessage(
-            `启动失败: ${e2 instanceof Error ? e2.message : String(e2)}`,
+            t("msg.startFailed", { msg: e2 instanceof Error ? e2.message : String(e2) }),
           ),
         ]);
       }
     }
   }
 
-  function finalizeAcpTurn(): void {
+  function finalizeAcpTurn(opts?: { cancelled?: boolean }): void {
+    if (cancelForceTimerRef.current) {
+      clearTimeout(cancelForceTimerRef.current);
+      cancelForceTimerRef.current = null;
+    }
     const final = streamBuffer.end();
     setMessages((prev) => {
       let next = prev.slice();
@@ -1755,12 +1805,16 @@ export default function App() {
         (m) =>
           !(m.id === final.textId && !m.content && m.role === "assistant"),
       );
+      if (opts?.cancelled) {
+        next.push(systemMessage(t("msg.stopped")));
+      }
       return next;
     });
     streamBuffer.reset();
     setBusy(false);
     setRunLabel(null);
     setStreamPhase("idle");
+    setPermission(null);
     streamingIdRef.current = null;
     thoughtIdRef.current = null;
     continueRef.current = true;
@@ -1819,7 +1873,7 @@ export default function App() {
       draftNewSessionRef.current = true;
     }
     if (!target && !owner) {
-      setMessages([systemMessage("请先选择或打开一个项目，再新建任务。")]);
+      setMessages([systemMessage(t("msg.selectProjectForNew"))]);
       return;
     }
     // 空会话界面：不立即 acp.newSession，首条消息再创建
@@ -1882,7 +1936,7 @@ export default function App() {
         break;
       case "home":
         setSession(null);
-        setMessages([systemMessage("已返回欢迎状态。")]);
+        setMessages([systemMessage(t("msg.backHome"))]);
         break;
       case "open-panel":
         if (result.openPanel === "settings") {
@@ -1911,7 +1965,11 @@ export default function App() {
         );
         setMessages((m) => [
           ...m,
-          systemMessage(saved ? `已导出: ${saved}` : "已取消导出"),
+          systemMessage(
+            saved
+              ? t("msg.exported", { path: String(saved) })
+              : t("msg.exportCancelled"),
+          ),
         ]);
         break;
       }
@@ -2054,7 +2112,7 @@ export default function App() {
         acpSessionIdRef.current = null;
         continueRef.current = false;
         setMessages([
-          systemMessage(`已删除会话: ${s.title || s.id.slice(0, 8)}`),
+          systemMessage(t("msg.sessionDeleted", { title: s.title || s.id.slice(0, 8) })),
         ]);
       }
       void refreshProjects();
@@ -2062,15 +2120,48 @@ export default function App() {
       setMessages((m) => [
         ...m,
         systemMessage(
-          `删除失败: ${error instanceof Error ? error.message : String(error)}`,
+          t("msg.deleteFailed", { msg: error instanceof Error ? error.message : String(error) }),
         ),
       ]);
     }
   }
 
   async function cancelTurn(): Promise<void> {
-    await window.grokDesktop.headless.cancel();
-    await window.grokDesktop.acp.cancel();
+    if (!busyRef.current && !permission) return;
+    setRunLabel(t("status.stoppingEllipsis"));
+    setStreamPhase("waiting");
+    // 若卡在权限审批，先拒绝再 cancel，避免 agent 悬挂在 request_permission
+    const pendingPermission = permission;
+    if (pendingPermission) {
+      setPermission(null);
+      try {
+        await window.grokDesktop.acp.permission(
+          pendingPermission.requestId,
+          "reject",
+          pendingPermission.rpcId,
+        );
+      } catch {
+        /* best-effort */
+      }
+    }
+    try {
+      await Promise.allSettled([
+        window.grokDesktop.headless.cancel(),
+        window.grokDesktop.acp.cancel(),
+      ]);
+    } catch {
+      /* cancel is best-effort */
+    }
+    // ACP prompt 正常返回后会 finalize；若 1.2s 后仍 busy 则强制解锁，避免「停止无效」
+    if (cancelForceTimerRef.current) {
+      clearTimeout(cancelForceTimerRef.current);
+    }
+    cancelForceTimerRef.current = setTimeout(() => {
+      cancelForceTimerRef.current = null;
+      if (busyRef.current) {
+        finalizeAcpTurn({ cancelled: true });
+      }
+    }, 1200);
   }
 
   const settingsValue: SettingsState = {
@@ -2086,30 +2177,31 @@ export default function App() {
     memory,
     selfCheck,
     themeLight,
+    locale,
   };
 
   const paletteItems: PaletteItem[] = useMemo(
     () => [
       {
         id: "new",
-        label: "新建对话",
+        label: t("palette.newChat"),
         hint: "⌘N",
         run: () => void createNewChat(),
       },
       {
         id: "open-project",
-        label: "打开项目…",
+        label: t("palette.openProject"),
         run: () => void openProjectPicker(),
       },
       {
         id: "settings",
-        label: "设置",
+        label: t("palette.settings"),
         hint: "⌘,",
         run: () => setSettingsOpen(true),
       },
       {
         id: "inspector",
-        label: "能力检查器",
+        label: t("palette.inspector"),
         hint: "⌘I",
         run: () => {
           setInspectorOpen(true);
@@ -2119,43 +2211,62 @@ export default function App() {
       },
       {
         id: "plan-on",
-        label: "开启 Plan 模式",
+        label: t("palette.planOn"),
         run: () => void togglePlanMode(true),
       },
       {
         id: "plan-off",
-        label: "关闭 Plan 模式",
+        label: t("palette.planOff"),
         run: () => void togglePlanMode(false),
       },
       {
         id: "context",
-        label: "查看上下文 /context",
+        label: t("palette.context"),
         run: () => void runSlashCommand("/context"),
       },
       {
         id: "compact",
-        label: "压缩会话 /compact",
+        label: t("palette.compact"),
         run: () => void runSlashCommand("/compact"),
       },
       {
         id: "fork",
-        label: "Fork 会话",
+        label: t("palette.fork"),
         run: () => void forkSession(),
       },
       {
         id: "theme",
-        label: themeLight ? "深色主题" : "浅色主题",
+        label: themeLight ? t("palette.themeDark") : t("palette.themeLight"),
         run: () => setThemeLight((v) => !v),
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [themeLight, project, model],
+    [themeLight, project, model, t, locale],
   );
 
   const shortPath = (p?: string | null) => {
-    if (!p) return "未选择项目";
+    if (!p) return t("app.noProject");
     return p.length > 52 ? `…${p.slice(-50)}` : p;
   };
+
+  const connectionStatus = runStatusLabel(busy, {
+    runLabel,
+    streamPhase,
+    permissionPending: !!permission,
+    connected: status.connected,
+    grokReady,
+    elapsedSec: streamElapsed > 0 ? Math.floor(streamElapsed / 1000) : 0,
+  }, t);
+
+  const composerPlaceholder = !project
+    ? t("app.placeholderNoProject")
+    : sessionLoading
+      ? t("app.placeholderLoading")
+      : busy
+        ? permission
+          ? t("app.placeholderWaitApprove")
+          : t("app.placeholderBusy")
+        : t("app.placeholderReady");
 
   return (
     <div className={themeLight ? "app layout-codex light" : "app layout-codex dark"}>
@@ -2170,40 +2281,53 @@ export default function App() {
         <div className="titlebar-chat">
           <div className="title-block">
             <h2>
-              {session?.title || (project ? project.name : "选择项目开始")}
+              {session?.title ||
+                (project
+                  ? draftNewSessionRef.current
+                    ? t("app.newChat")
+                    : project.name
+                  : t("app.selectProject"))}
             </h2>
             <p title={project?.path || ""}>
-              {shortPath(project?.path)} · {model}
+              {shortPath(project?.path)}
+              {planMode ? " · Plan" : ""}
+              {alwaysApprove ? t("app.alwaysApproveSuffix") : ""}
+              {" · "}
+              {model}
             </p>
           </div>
           <div className="titlebar-actions titlebar-no-drag">
             <span
-              className={`status-pill ${busy ? "pending" : status.connected || grokReady ? "ok" : "bad"}`}
+              className={`status-pill ${connectionStatus.tone === "warn" ? "warn" : connectionStatus.tone}`}
               title={
-                status.connected
-                  ? `ACP agent · ${status.sessionId || "no session"} · ${appInfo?.grokBin || ""}`
-                  : appInfo?.grokBin || ""
+                permission
+                  ? t("app.waitApproveTitle", { title: permission.title })
+                  : status.connected
+                    ? t("app.acpConnectedTitle", { session: status.sessionId || "no session", bin: appInfo?.grokBin || "" })
+                    : grokReady
+                      ? t("app.grokCliReadyTitle", { bin: appInfo?.grokBin || "" })
+                      : appInfo?.grokBin || t("app.noGrokCli")
               }
             >
               <span className="dot" />
-              {busy
-                ? `${runLabel || "运行中"}${streamElapsed > 0 ? ` ${Math.floor(streamElapsed / 1000)}s` : ""}`
-                : status.connected
-                  ? "Agent 已连接"
-                  : grokReady
-                    ? "Grok 就绪"
-                    : "Grok 未就绪"}
+              {connectionStatus.text}
             </span>
             {queue.length > 0 ? (
-              <span className="status-pill pending">队列 {queue.length}</span>
+              <span
+                className="status-pill pending"
+                title={t("app.queueTitle")}
+              >
+                {t("app.queue", { n: queue.length })}
+              </span>
             ) : null}
-            {busy ? (
+            {busy || permission ? (
               <button
                 type="button"
-                className="btn btn-sm"
+                className="btn btn-sm btn-stop"
                 onClick={() => void cancelTurn()}
+                title={t("app.stopTitle")}
               >
-                停止
+                {t("common.stop")}
               </button>
             ) : null}
           </div>
@@ -2274,7 +2398,21 @@ export default function App() {
               />
             ) : null}
 
-            <div className="composer">
+            {queue.length > 0 ? (
+              <div className="composer-queue-banner" role="status">
+                <span>{t("app.queueBanner", { n: queue.length })}</span>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  title={t("app.clearQueue")}
+                  onClick={() => setQueue([])}
+                >
+                  {t("app.clearQueue")}
+                </button>
+              </div>
+            ) : null}
+
+            <div className={`composer${busy ? " is-busy" : ""}${!project ? " is-disabled" : ""}`}>
               {attachments.length > 0 ? (
                 <div className="attach-strip">
                   {attachments.map((a) => (
@@ -2294,7 +2432,7 @@ export default function App() {
                       <button
                         type="button"
                         className="attach-remove"
-                        title="移除"
+                        title={t("app.removeAttachment")}
                         onClick={() => removeAttachment(a.id)}
                       >
                         ×
@@ -2324,8 +2462,9 @@ export default function App() {
               <textarea
                 ref={textareaRef}
                 value={input}
-                placeholder="给 Grok 发消息… 粘贴/上传图片 · @ 引用文件 · / 命令 · Enter 发送"
+                placeholder={composerPlaceholder}
                 disabled={!project || sessionLoading}
+                aria-label={t("app.messageInput")}
                 onChange={(e) => void onInputChange(e.target.value)}
                 onPaste={(e) => void handleComposerPaste(e)}
                 onKeyDown={(e) => {
@@ -2390,7 +2529,7 @@ export default function App() {
                     type="button"
                     className="btn btn-sm attach-btn"
                     disabled={!project || sessionLoading}
-                    title="添加图片或文件"
+                    title={t("app.addFiles")}
                     onClick={() => {
                       // Prefer native dialog (paths preserved); fallback HTML input
                       void addFilesFromPicker().catch(() =>
@@ -2406,22 +2545,23 @@ export default function App() {
                     onClick={() => void togglePlanMode(!planMode)}
                     title={
                       planMode
-                        ? "Plan 模式已开启（点击关闭）"
-                        : "开启 Plan 模式：先规划再执行"
+                        ? t("app.planOnTitle")
+                        : t("app.planOffTitle")
                     }
                     disabled={!project || sessionLoading}
                   >
                     <span className="plan-chip-icon" aria-hidden>
                       ⌖
                     </span>
-                    计划
+                    {t("common.plan")}
                     {planMode ? <span className="plan-chip-dot" /> : null}
                   </button>
                   <select
                     className="inline-select"
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
-                    title="模型"
+                    title={t("common.model")}
+                    aria-label={t("common.model")}
                   >
                     {models.map((m) => (
                       <option key={m} value={m}>
@@ -2433,23 +2573,27 @@ export default function App() {
                     className="inline-select"
                     value={effort}
                     onChange={(e) => setEffort(e.target.value as EffortLevel)}
-                    title="推理力度"
+                    title={t("app.effortTitle")}
+                    aria-label={t("app.effortTitle")}
                   >
-                    <option value="low">力度：低</option>
-                    <option value="medium">力度：中</option>
-                    <option value="high">力度：高</option>
-                    <option value="xhigh">力度：很高</option>
-                    <option value="max">力度：最大</option>
+                    <option value="low">{t("app.effortOption", { label: t("settings.effortLow") })}</option>
+                    <option value="medium">{t("app.effortOption", { label: t("settings.effortMedium") })}</option>
+                    <option value="high">{t("app.effortOption", { label: t("settings.effortHigh") })}</option>
+                    <option value="xhigh">{t("app.effortOption", { label: t("settings.effortXhigh") })}</option>
+                    <option value="max">{t("app.effortOption", { label: t("settings.effortMax") })}</option>
                   </select>
-                  <label className="inline-check" title="--always-approve">
+                  <label
+                    className={`inline-check${alwaysApprove ? " danger-on" : ""}`}
+                    title={t("app.alwaysApproveRisk")}
+                  >
                     <input
                       type="checkbox"
                       checked={alwaysApprove}
                       onChange={(e) => setAlwaysApprove(e.target.checked)}
                     />
-                    始终批准
+                    {t("settings.alwaysApprove")}
                   </label>
-                  <span className="dim">
+                  <span className="dim" title={appInfo?.grokHome || ""}>
                     {appInfo
                       ? appInfo.grokHome.replace(/^\/Users\/[^/]+/, "~")
                       : ""}
@@ -2460,6 +2604,7 @@ export default function App() {
                     type="button"
                     className="btn btn-sm"
                     onClick={() => setPaletteOpen(true)}
+                    title={t("app.commandPalette")}
                   >
                     ⌘K
                   </button>
@@ -2475,7 +2620,7 @@ export default function App() {
                       e.preventDefault();
                       void handleSubmit();
                     }}
-                    title={busy ? "停止" : "发送"}
+                    title={busy ? t("app.stopEsc") : t("app.sendEnter")}
                   />
                 </div>
               </div>
@@ -2488,12 +2633,18 @@ export default function App() {
         <PermissionModal
           request={permission}
           onRespond={(optionId) => {
-            void window.grokDesktop.acp.permission(
-              permission.requestId,
-              optionId,
-              permission.rpcId,
-            );
+            const req = permission;
             setPermission(null);
+            if (busyRef.current) {
+              setRunLabel(
+                optionId === "reject" ? t("status.rejectedContinue") : t("status.agentRunning"),
+              );
+            }
+            void window.grokDesktop.acp.permission(
+              req.requestId,
+              optionId,
+              req.rpcId,
+            );
           }}
         />
       ) : null}
@@ -2521,6 +2672,7 @@ export default function App() {
           setMemory(next.memory);
           setSelfCheck(next.selfCheck);
           setThemeLight(next.themeLight);
+          if (next.locale !== locale) setLocale(next.locale);
         }}
         onClose={() => setSettingsOpen(false)}
       />

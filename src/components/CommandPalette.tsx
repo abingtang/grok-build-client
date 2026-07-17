@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useI18n } from "../i18n";
 
 export interface PaletteItem {
   id: string;
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function CommandPalette({ open, items, onClose }: Props) {
+  const { t } = useI18n();
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
 
@@ -50,7 +52,7 @@ export function CommandPalette({ open, items, onClose }: Props) {
         <input
           autoFocus
           className="palette-input"
-          placeholder="搜索命令、设置…"
+          placeholder={t("palette.search")}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
@@ -75,7 +77,7 @@ export function CommandPalette({ open, items, onClose }: Props) {
         />
         <div className="palette-list">
           {filtered.length === 0 ? (
-            <div className="empty-hint">无匹配项</div>
+            <div className="empty-hint">{t("palette.empty")}</div>
           ) : (
             filtered.map((it, i) => (
               <button

@@ -1,5 +1,6 @@
 /** Codex-style markdown → safe HTML for assistant bubbles. */
 
+import { rt } from "../i18n";
 import { highlightCode, normalizeLang } from "./highlight";
 
 function escapeHtml(src: string): string {
@@ -87,7 +88,7 @@ export function renderMarkdown(src: string): string {
     fences.push(
       `<div class="md-codeblock" data-lang="${label}">` +
         `<div class="md-code-bar"><span class="md-code-lang">${label}</span>` +
-        `<button type="button" class="md-copy" data-copy="${encodeURIComponent(raw)}">复制</button></div>` +
+        `<button type="button" class="md-copy" data-copy="${encodeURIComponent(raw)}">${rt("markdown.copy")}</button></div>` +
         `<pre class="md-code"><code class="hljs language-${escapeHtml(normalizeLang(rawLang || label))}">${highlighted}</code></pre></div>`,
     );
     return `\n\n@@FENCE_${i}@@\n\n`;

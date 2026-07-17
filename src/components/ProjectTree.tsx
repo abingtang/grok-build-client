@@ -5,6 +5,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { useI18n, type TranslateFn } from "../i18n";
 import type { ProjectInfo, SessionSummary } from "../lib/types";
 
 interface Props {
@@ -102,6 +103,43 @@ function SubagentSessionIcon() {
       </svg>
     </span>
   );
+}
+
+/** Git-style branch/fork mark for session_kind=fork */
+function ForkSessionIcon() {
+  return (
+    <span className="tree-icon session fork" aria-hidden>
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+        {/* trunk */}
+        <path
+          d="M5 3.5v6.5"
+          stroke="currentColor"
+          strokeWidth="1.25"
+          strokeLinecap="round"
+        />
+        {/* branch arc + tip */}
+        <path
+          d="M5 7.2c0 2 1.6 3.3 4 3.3h0"
+          stroke="currentColor"
+          strokeWidth="1.25"
+          strokeLinecap="round"
+        />
+        <circle cx="5" cy="3.5" r="1.6" fill="currentColor" />
+        <circle cx="5" cy="12" r="1.6" fill="currentColor" />
+        <circle cx="11" cy="10.5" r="1.6" fill="currentColor" />
+      </svg>
+    </span>
+  );
+}
+
+function sessionRowIcon(s: SessionSummary, nested: boolean, loading: boolean) {
+  if (loading) {
+    return <span className="tree-mini-spinner" aria-hidden />;
+  }
+  const kind = String(s.sessionKind || "").toLowerCase();
+  if (kind === "fork") return <ForkSessionIcon />;
+  if (nested || isSubagentSession(s)) return <SubagentSessionIcon />;
+  return <SessionIcon />;
 }
 
 function ChevronSessionIcon({ open }: { open: boolean }) {
@@ -253,9 +291,10 @@ function RefreshIcon() {
 
 type MenuKind = "project";
 
+/** Recursive: fork → subagent → … all levels nested. */
 type SessionTreeNode = {
   session: SessionSummary;
-  children: SessionSummary[];
+  children: SessionTreeNode[];
 };
 
 function projectNameForSession(
@@ -271,7 +310,13 @@ function projectNameForSession(
   return "";
 }
 
-/** Nest subagent/fork sessions under parent; only roots appear at top level. */
+const sortSessionsByUpdated = (a: SessionSummary, b: SessionSummary) =>
+  (b.updatedAt || "").localeCompare(a.updatedAt || "");
+
+/**
+ * Nest subagent/fork under parent (multi-level).
+ * Backend often links subagents → fork → root; one-level UI would drop grandchildren.
+ */
 function buildSessionTree(sessions: SessionSummary[]): SessionTreeNode[] {
   const byId = new Map(sessions.map((s) => [s.id, s]));
   const childrenMap = new Map<string, SessionSummary[]>();
@@ -288,16 +333,36 @@ function buildSessionTree(sessions: SessionSummary[]): SessionTreeNode[] {
     }
   }
 
-  const sortByUpdated = (a: SessionSummary, b: SessionSummary) =>
-    (b.updatedAt || "").localeCompare(a.updatedAt || "");
+  for (const kids of childrenMap.values()) kids.sort(sortSessionsByUpdated);
+  roots.sort(sortSessionsByUpdated);
 
-  roots.sort(sortByUpdated);
-  for (const kids of childrenMap.values()) kids.sort(sortByUpdated);
+  const toNode = (
+    session: SessionSummary,
+    stack: Set<string>,
+  ): SessionTreeNode => {
+    if (stack.has(session.id)) {
+      return { session, children: [] };
+    }
+    const nextStack = new Set(stack);
+    nextStack.add(session.id);
+    const kids = childrenMap.get(session.id) || [];
+    return {
+      session,
+      children: kids.map((k) => toNode(k, nextStack)),
+    };
+  };
 
-  return roots.map((session) => ({
-    session,
-    children: childrenMap.get(session.id) || [],
-  }));
+  return roots.map((s) => toNode(s, new Set()));
+}
+
+/** Whether node or any descendant matches activeSessionId. */
+function treeContainsActive(
+  node: SessionTreeNode,
+  activeId: string | null,
+): boolean {
+  if (!activeId) return false;
+  if (node.session.id === activeId) return true;
+  return node.children.some((c) => treeContainsActive(c, activeId));
 }
 
 function isSubagentSession(s: SessionSummary): boolean {
@@ -305,7 +370,210 @@ function isSubagentSession(s: SessionSummary): boolean {
   return kind === "subagent" || kind === "fork" || !!s.parentSessionId;
 }
 
+function sessionKindLabel(s: SessionSummary, t: TranslateFn): string {
+  const kind = String(s.sessionKind || "").toLowerCase();
+  if (kind === "fork") return t("tree.branchPrefix");
+  if (s.agentName && s.agentName !== "grok-build-plan") {
+    return `${s.agentName} · `;
+  }
+  if (kind === "subagent" || s.parentSessionId) return t("tree.childPrefix");
+  return "";
+}
+
+/** Walk parent_session_id chain for expand-on-select. */
+function collectAncestorIds(
+  sessionId: string,
+  sessions: SessionSummary[],
+): string[] {
+  const byId = new Map(sessions.map((s) => [s.id, s]));
+  const out: string[] = [];
+  let cur = byId.get(sessionId);
+  const seen = new Set<string>();
+  while (cur?.parentSessionId && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    const parentId = cur.parentSessionId;
+    if (!byId.has(parentId)) break;
+    out.push(parentId);
+    cur = byId.get(parentId);
+  }
+  return out;
+}
+
+type SessionTreeBranchProps = {
+  node: SessionTreeNode;
+  depth: number;
+  project: ProjectInfo;
+  activeSessionId: string | null;
+  loadingSessionId?: string | null;
+  confirmId: string | null;
+  expandedSessionIds: Set<string>;
+  onToggleExpand: (id: string) => void;
+  onSelectSession: (project: ProjectInfo, session: SessionSummary) => void;
+  onDeleteSession: (project: ProjectInfo | null, session: SessionSummary) => void;
+  onConfirmDelete: (id: string | null) => void;
+};
+
+function SessionTreeBranch({
+  node,
+  depth,
+  project,
+  activeSessionId,
+  loadingSessionId,
+  confirmId,
+  expandedSessionIds,
+  onToggleExpand,
+  onSelectSession,
+  onDeleteSession,
+  onConfirmDelete,
+}: SessionTreeBranchProps) {
+  const { t } = useI18n();
+  const s = node.session;
+  const kids = node.children;
+  const hasKids = kids.length > 0;
+  const kidsOpen = expandedSessionIds.has(s.id);
+  const active = activeSessionId === s.id;
+  const loading = loadingSessionId === s.id;
+  const confirming = confirmId === s.id;
+  const childActive = treeContainsActive(node, activeSessionId) && !active;
+  const nested = depth > 0;
+  const kind = String(s.sessionKind || "").toLowerCase();
+
+  return (
+    <div
+      className={`session-tree-node${nested ? " session-tree-node-nested" : ""}`}
+      style={nested ? undefined : undefined}
+    >
+      <div
+        className={[
+          "tree-row",
+          "session-row",
+          active ? "active" : "",
+          loading ? "loading" : "",
+          childActive ? "has-active-child" : "",
+          hasKids ? "has-children" : "",
+          nested ? "session-row-child" : "",
+          kind === "fork" ? "session-row-fork" : "",
+          kind === "subagent" ? "session-row-subagent" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        style={nested ? { paddingLeft: 0 } : undefined}
+      >
+        <button
+          type="button"
+          className="session-row-main"
+          title={
+            [s.agentName, s.sessionKind, s.summary || s.id]
+              .filter(Boolean)
+              .join(" · ") || s.id
+          }
+          disabled={!!loadingSessionId}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectSession(project, s);
+          }}
+        >
+          {sessionRowIcon(s, nested, loading)}
+          <span className="tree-label">
+            {nested || isSubagentSession(s) ? sessionKindLabel(s, t) : null}
+            {s.title || s.id.slice(0, 8)}
+          </span>
+          {active && !loading ? (
+            <span className="tree-active-dot" aria-hidden />
+          ) : null}
+        </button>
+        <span className="session-row-trailing">
+          {hasKids ? (
+            <span
+              className="tree-count session-child-count"
+              title={t("tree.childrenCount", { n: kids.length })}
+            >
+              {kids.length}
+            </span>
+          ) : null}
+          {hasKids ? (
+            <button
+              type="button"
+              className={`session-expand-btn ${kidsOpen ? "open" : ""}`}
+              title={kidsOpen ? t("tree.collapseChildren") : t("tree.expandChildren")}
+              aria-label={kidsOpen ? t("tree.collapseChildren") : t("tree.expandChildren")}
+              aria-expanded={kidsOpen}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleExpand(s.id);
+              }}
+            >
+              <ChevronSessionIcon open={kidsOpen} />
+            </button>
+          ) : null}
+          {confirming ? (
+            <span className="session-del-confirm">
+              <button
+                type="button"
+                className="btn btn-sm btn-danger"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onConfirmDelete(null);
+                  onDeleteSession(project, s);
+                }}
+              >
+                {t("common.confirm")}
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onConfirmDelete(null);
+                }}
+              >
+                {t("common.cancel")}
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              className="session-del-btn"
+              title={nested ? t("tree.deleteChildSession") : t("tree.deleteSession")}
+              aria-label={nested ? t("tree.deleteChildSession") : t("tree.deleteSession")}
+              onClick={(e) => {
+                e.stopPropagation();
+                onConfirmDelete(s.id);
+              }}
+            >
+              <TrashIcon />
+            </button>
+          )}
+        </span>
+      </div>
+
+      {hasKids && kidsOpen ? (
+        <div className="session-children" data-depth={depth}>
+          {kids.map((child) => (
+            <SessionTreeBranch
+              key={child.session.id}
+              node={child}
+              depth={depth + 1}
+              project={project}
+              activeSessionId={activeSessionId}
+              loadingSessionId={loadingSessionId}
+              confirmId={confirmId}
+              expandedSessionIds={expandedSessionIds}
+              onToggleExpand={onToggleExpand}
+              onSelectSession={onSelectSession}
+              onDeleteSession={onDeleteSession}
+              onConfirmDelete={onConfirmDelete}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ProjectTree({
+  // i18n via hook below
+
   projects,
   sessionsByProject,
   expanded,
@@ -330,6 +598,7 @@ export function ProjectTree({
   onOpenInspector,
   onOpenSettings,
 }: Props) {
+  const { t } = useI18n();
   const [confirmId, setConfirmId] = useState<string | null>(null);
   /** Expanded root sessions that show nested subagents */
   const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(
@@ -344,20 +613,26 @@ export function ProjectTree({
   const menuRef = useRef<HTMLDivElement>(null);
   const isSearch = searchQuery.trim().length > 0;
 
-  // 当前选中的是子会话时，自动展开其根会话
+  // 选中嵌套会话时，展开整条祖先链（fork → 根）
   useEffect(() => {
     if (!activeSessionId) return;
     for (const list of Object.values(sessionsByProject)) {
       const hit = list.find((s) => s.id === activeSessionId);
-      if (hit?.parentSessionId) {
-        setExpandedSessionIds((prev) => {
-          if (prev.has(hit.parentSessionId!)) return prev;
-          const next = new Set(prev);
-          next.add(hit.parentSessionId!);
-          return next;
-        });
-        break;
-      }
+      if (!hit) continue;
+      const ancestors = collectAncestorIds(activeSessionId, list);
+      if (!ancestors.length) break;
+      setExpandedSessionIds((prev) => {
+        let changed = false;
+        const next = new Set(prev);
+        for (const id of ancestors) {
+          if (!next.has(id)) {
+            next.add(id);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+      break;
     }
   }, [activeSessionId, sessionsByProject]);
 
@@ -422,10 +697,10 @@ export function ProjectTree({
           type="button"
           className="sidebar-new-task"
           onClick={onNewChat}
-          title="新建会话"
+          title={t("tree.newSession")}
         >
           <NewTaskIcon />
-          <span>新建任务</span>
+          <span>{t("tree.newTask")}</span>
         </button>
       </div>
 
@@ -434,10 +709,10 @@ export function ProjectTree({
           <input
             type="text"
             className="sidebar-search-input"
-            placeholder="搜索会话…"
+            placeholder={t("tree.searchSessions")}
             value={searchQuery}
             onChange={(e) => onSearchQueryChange(e.target.value)}
-            aria-label="搜索会话"
+            aria-label={t("tree.searchSessions")}
             autoComplete="off"
             spellCheck={false}
           />
@@ -445,8 +720,8 @@ export function ProjectTree({
             <button
               type="button"
               className="sidebar-search-clear"
-              title="清除"
-              aria-label="清除搜索"
+              title={t("tree.clear")}
+              aria-label={t("tree.clearSearch")}
               onClick={() => onSearchQueryChange("")}
             >
               <ClearIcon />
@@ -458,15 +733,15 @@ export function ProjectTree({
       {/* 项目 | 打开项目 · 刷新列表 */}
       <div className="section-head titlebar-no-drag">
         <span className="section-head-label">
-          {isSearch ? `搜索${searchLoading ? "…" : ""}` : "项目"}
+          {isSearch ? (searchLoading ? t("tree.searching") : t("tree.searchLabel")) : t("tree.projects")}
         </span>
         {!isSearch ? (
           <span className="section-head-actions">
             <button
               type="button"
               className="icon-btn"
-              title="打开项目"
-              aria-label="打开项目"
+              title={t("tree.openProject")}
+              aria-label={t("tree.openProject")}
               onClick={onOpenFolder}
             >
               <PlusIcon />
@@ -474,8 +749,8 @@ export function ProjectTree({
             <button
               type="button"
               className="icon-btn"
-              title="刷新列表"
-              aria-label="刷新列表"
+              title={t("tree.refreshList")}
+              aria-label={t("tree.refreshList")}
               onClick={onRefresh}
             >
               <RefreshIcon />
@@ -487,9 +762,9 @@ export function ProjectTree({
       <div className="project-tree">
         {isSearch ? (
           searchLoading && (!searchResults || searchResults.length === 0) ? (
-            <div className="empty-hint">搜索中…</div>
+            <div className="empty-hint">{t("tree.searchingHint")}</div>
           ) : !searchResults || searchResults.length === 0 ? (
-            <div className="empty-hint">无匹配会话</div>
+            <div className="empty-hint">{t("tree.noMatch")}</div>
           ) : (
             searchResults.map((s) => {
               const proj =
@@ -537,22 +812,22 @@ export function ProjectTree({
                           onDeleteSession(proj, s);
                         }}
                       >
-                        确认
+                        {t("common.confirm")}
                       </button>
                       <button
                         type="button"
                         className="btn btn-sm"
                         onClick={() => setConfirmId(null)}
                       >
-                        取消
+                        {t("common.cancel")}
                       </button>
                     </span>
                   ) : (
                     <button
                       type="button"
                       className="session-del-btn"
-                      title="删除会话"
-                      aria-label="删除会话"
+                      title={t("tree.deleteSession")}
+                      aria-label={t("tree.deleteSession")}
                       onClick={(e) => {
                         e.stopPropagation();
                         setConfirmId(s.id);
@@ -567,7 +842,7 @@ export function ProjectTree({
           )
         ) : projects.length === 0 ? (
           <div className="empty-hint">
-            暂无项目。点击上方 <strong>+</strong> 打开目录。
+            {t("tree.noProjects")}
           </div>
         ) : (
           projects.map((p) => {
@@ -590,37 +865,44 @@ export function ProjectTree({
                     <FolderIcon open={isOpen} />
                     <span className="tree-label">{p.name}</span>
                     {p.pinned ? (
-                      <span className="tree-pin-mark" title="已置顶">
+                      <span className="tree-pin-mark" title={t("tree.pinned")}>
                         <PinIcon />
                       </span>
                     ) : null}
+                  </button>
+                  {/* 最右侧：默认会话数；hover 时换成 ··· / + */}
+                  <span className="project-row-trailing">
                     {typeof p.sessionCount === "number" &&
                     p.sessionCount > 0 ? (
-                      <span className="tree-count">{p.sessionCount}</span>
-                    ) : null}
-                  </button>
-                  <span className="project-row-actions">
-                    <button
-                      type="button"
-                      className="icon-btn project-more"
-                      title="项目操作"
-                      aria-label="项目操作"
-                      onClick={(e) => openMenu(e, "project", p.path)}
-                    >
-                      <MoreIcon />
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-btn project-new-session"
-                      title="在此项目下新建会话"
-                      aria-label="在此项目下新建会话"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onNewChatInProject?.(p);
-                      }}
-                    >
-                      <PlusIcon />
-                    </button>
+                      <span className="tree-count" aria-label={t("tree.sessionCount", { n: p.sessionCount })}>
+                        {p.sessionCount}
+                      </span>
+                    ) : (
+                      <span className="tree-count tree-count-empty" aria-hidden />
+                    )}
+                    <span className="project-row-actions">
+                      <button
+                        type="button"
+                        className="icon-btn project-more"
+                        title={t("tree.projectActions")}
+                        aria-label={t("tree.projectActions")}
+                        onClick={(e) => openMenu(e, "project", p.path)}
+                      >
+                        <MoreIcon />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn project-new-session"
+                        title={t("tree.newSessionInProject")}
+                        aria-label={t("tree.newSessionInProject")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onNewChatInProject?.(p);
+                        }}
+                      >
+                        <PlusIcon />
+                      </button>
+                    </span>
                   </span>
                 </div>
 
@@ -629,222 +911,27 @@ export function ProjectTree({
                     {isLoading ? (
                       <div className="tree-row muted">
                         <span className="tree-mini-spinner" aria-hidden />
-                        加载会话…
+                        {t("tree.loadingSessions")}
                       </div>
                     ) : sessions.length === 0 ? (
-                      <div className="tree-row muted">暂无会话</div>
+                      <div className="tree-row muted">{t("tree.noSessions")}</div>
                     ) : (
-                      buildSessionTree(sessions).map((node) => {
-                        const s = node.session;
-                        const kids = node.children;
-                        const hasKids = kids.length > 0;
-                        const kidsOpen = expandedSessionIds.has(s.id);
-                        const active = activeSessionId === s.id;
-                        const loading = loadingSessionId === s.id;
-                        const confirming = confirmId === s.id;
-                        const childActive = kids.some(
-                          (c) => c.id === activeSessionId,
-                        );
-
-                        return (
-                          <div key={s.id} className="session-tree-node">
-                            <div
-                              className={`tree-row session-row ${active ? "active" : ""} ${loading ? "loading" : ""} ${childActive && !active ? "has-active-child" : ""}`}
-                            >
-                              {hasKids ? (
-                                <button
-                                  type="button"
-                                  className={`session-expand-btn ${kidsOpen ? "open" : ""}`}
-                                  title={kidsOpen ? "收起子会话" : "展开子会话"}
-                                  aria-label={
-                                    kidsOpen ? "收起子会话" : "展开子会话"
-                                  }
-                                  aria-expanded={kidsOpen}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleSessionExpand(s.id);
-                                  }}
-                                >
-                                  <ChevronSessionIcon open={kidsOpen} />
-                                </button>
-                              ) : (
-                                <span className="session-expand-spacer" />
-                              )}
-                              <button
-                                type="button"
-                                className="session-row-main"
-                                title={s.summary || s.id}
-                                disabled={!!loadingSessionId}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onSelectSession(p, s);
-                                }}
-                              >
-                                {loading ? (
-                                  <span
-                                    className="tree-mini-spinner"
-                                    aria-hidden
-                                  />
-                                ) : (
-                                  <SessionIcon />
-                                )}
-                                <span className="tree-label">
-                                  {s.title || s.id.slice(0, 8)}
-                                </span>
-                                {hasKids ? (
-                                  <span
-                                    className="tree-count session-child-count"
-                                    title={`${kids.length} 个子会话`}
-                                  >
-                                    {kids.length}
-                                  </span>
-                                ) : null}
-                                {active && !loading ? (
-                                  <span
-                                    className="tree-active-dot"
-                                    aria-hidden
-                                  />
-                                ) : null}
-                              </button>
-                              {confirming ? (
-                                <span className="session-del-confirm">
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm btn-danger"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setConfirmId(null);
-                                      onDeleteSession(p, s);
-                                    }}
-                                  >
-                                    确认
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setConfirmId(null);
-                                    }}
-                                  >
-                                    取消
-                                  </button>
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  className="session-del-btn"
-                                  title="删除会话"
-                                  aria-label="删除会话"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setConfirmId(s.id);
-                                  }}
-                                >
-                                  <TrashIcon />
-                                </button>
-                              )}
-                            </div>
-
-                            {hasKids && kidsOpen ? (
-                              <div className="session-children">
-                                {kids.map((c) => {
-                                  const cActive = activeSessionId === c.id;
-                                  const cLoading = loadingSessionId === c.id;
-                                  const cConfirm = confirmId === c.id;
-                                  return (
-                                    <div
-                                      key={c.id}
-                                      className={`tree-row session-row session-row-child ${cActive ? "active" : ""} ${cLoading ? "loading" : ""}`}
-                                    >
-                                      <button
-                                        type="button"
-                                        className="session-row-main"
-                                        title={
-                                          [
-                                            c.agentName,
-                                            c.sessionKind,
-                                            c.summary || c.id,
-                                          ]
-                                            .filter(Boolean)
-                                            .join(" · ")
-                                        }
-                                        disabled={!!loadingSessionId}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onSelectSession(p, c);
-                                        }}
-                                      >
-                                        {cLoading ? (
-                                          <span
-                                            className="tree-mini-spinner"
-                                            aria-hidden
-                                          />
-                                        ) : (
-                                          <SubagentSessionIcon />
-                                        )}
-                                        <span className="tree-label">
-                                          {c.agentName &&
-                                          c.agentName !== "grok-build-plan"
-                                            ? `${c.agentName} · `
-                                            : isSubagentSession(c)
-                                              ? "子会话 · "
-                                              : ""}
-                                          {c.title || c.id.slice(0, 8)}
-                                        </span>
-                                        {cActive && !cLoading ? (
-                                          <span
-                                            className="tree-active-dot"
-                                            aria-hidden
-                                          />
-                                        ) : null}
-                                      </button>
-                                      {cConfirm ? (
-                                        <span className="session-del-confirm">
-                                          <button
-                                            type="button"
-                                            className="btn btn-sm btn-danger"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setConfirmId(null);
-                                              onDeleteSession(p, c);
-                                            }}
-                                          >
-                                            确认
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn btn-sm"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setConfirmId(null);
-                                            }}
-                                          >
-                                            取消
-                                          </button>
-                                        </span>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          className="session-del-btn"
-                                          title="删除子会话"
-                                          aria-label="删除子会话"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setConfirmId(c.id);
-                                          }}
-                                        >
-                                          <TrashIcon />
-                                        </button>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })
+                      buildSessionTree(sessions).map((node) => (
+                        <SessionTreeBranch
+                          key={node.session.id}
+                          node={node}
+                          depth={0}
+                          project={p}
+                          activeSessionId={activeSessionId}
+                          loadingSessionId={loadingSessionId}
+                          confirmId={confirmId}
+                          expandedSessionIds={expandedSessionIds}
+                          onToggleExpand={toggleSessionExpand}
+                          onSelectSession={onSelectSession}
+                          onDeleteSession={onDeleteSession}
+                          onConfirmDelete={setConfirmId}
+                        />
+                      ))
                     )}
                   </div>
                 ) : null}
@@ -859,17 +946,17 @@ export function ProjectTree({
           type="button"
           className="btn btn-sm sidebar-footer-btn"
           onClick={() => onOpenInspector?.()}
-          title="能力检查器 ⌘I"
+          title={t("tree.inspectorTitle")}
         >
-          检查器
+          {t("tree.inspector")}
         </button>
         <button
           type="button"
           className="btn btn-sm sidebar-footer-btn"
           onClick={() => onOpenSettings?.()}
-          title="设置"
+          title={t("tree.settings")}
         >
-          设置
+          {t("tree.settings")}
         </button>
       </div>
 
@@ -892,7 +979,7 @@ export function ProjectTree({
                 }}
               >
                 <PinIcon />
-                <span>{menuProject.pinned ? "取消置顶" : "置顶项目"}</span>
+                <span>{menuProject.pinned ? t("tree.unpin") : t("tree.pin")}</span>
               </button>
               <button
                 type="button"
@@ -904,7 +991,7 @@ export function ProjectTree({
                 }}
               >
                 <FinderIcon />
-                <span>在 Finder 中显示</span>
+                <span>{t("tree.revealFinder")}</span>
               </button>
               <div className="ctx-sep" />
               <button
@@ -917,7 +1004,7 @@ export function ProjectTree({
                 }}
               >
                 <RemoveIcon />
-                <span>移除</span>
+                <span>{t("tree.remove")}</span>
               </button>
             </>
           ) : null}

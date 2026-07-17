@@ -6,3 +6,4 @@ release/
 *.log
 .env
 .env.*
+grok-build/

@@ -3,6 +3,7 @@
  * Source of truth remains ACP / headless streams; AI SDK shapes drive AI Elements.
  */
 import type { ChatStatus, UIMessage } from "ai";
+import { rt, type TranslateFn } from "../i18n";
 import type { ChatMessage, MessageAttachment, ToolMeta } from "./types";
 
 export type GrokUIMetadata = {
@@ -31,17 +32,67 @@ export function toChatStatus(
   return "streaming";
 }
 
-export function phaseLabel(phase?: string | null): string | null {
+export function phaseLabel(
+  phase?: string | null,
+  t?: TranslateFn,
+): string | null {
+  const tr = t || ((k: string) => k);
   switch (phase) {
     case "waiting":
-      return "正在连接 Grok…";
+      return tr("status.connectingGrok");
     case "thinking":
-      return "Grok 正在思考…";
+      return tr("status.grokThinking");
     case "writing":
-      return "Grok 正在生成…";
+      return tr("status.grokWriting");
+    case "permission":
+      return tr("status.waitToolApprove");
+    case "stopping":
+      return tr("status.stoppingEllipsis");
     default:
       return null;
   }
+}
+
+/** Compact titlebar / status-pill label for agent turn phases. */
+export function runStatusLabel(
+  busy: boolean,
+  opts?: {
+    runLabel?: string | null;
+    streamPhase?: string | null;
+    permissionPending?: boolean;
+    connected?: boolean;
+    grokReady?: boolean;
+    elapsedSec?: number;
+  },
+  t?: TranslateFn,
+): { text: string; tone: "ok" | "pending" | "bad" | "warn" } {
+  const tr = t || ((k: string) => k);
+  if (opts?.permissionPending) {
+    return { text: tr("status.waitingApprove"), tone: "warn" };
+  }
+  if (busy) {
+    const base =
+      opts?.runLabel ||
+      (opts?.streamPhase === "thinking"
+        ? tr("status.thinking")
+        : opts?.streamPhase === "writing"
+          ? tr("status.writing")
+          : opts?.streamPhase === "waiting"
+            ? tr("status.connecting")
+            : opts?.streamPhase === "stopping"
+              ? tr("status.stopping")
+              : tr("status.running"));
+    const sec =
+      opts?.elapsedSec && opts.elapsedSec > 0 ? ` ${opts.elapsedSec}s` : "";
+    return { text: `${base}${sec}`, tone: "pending" };
+  }
+  if (opts?.connected) {
+    return { text: tr("status.agentConnected"), tone: "ok" };
+  }
+  if (opts?.grokReady) {
+    return { text: tr("status.grokReadyNoAgent"), tone: "pending" };
+  }
+  return { text: tr("status.grokNotReady"), tone: "bad" };
 }
 
 function toolState(
@@ -110,7 +161,7 @@ export function chatMessageToUIMessage(m: ChatMessage): GrokUIMessage {
         ...base,
         state: "output-error",
         input: base.input,
-        errorText: m.content || "工具执行失败",
+        errorText: m.content || rt("chat.toolFailed"),
       };
     } else {
       toolPart = {

@@ -1,4 +1,5 @@
 import hljs from "highlight.js/lib/core";
+import { rt } from "../i18n";
 import bash from "highlight.js/lib/languages/bash";
 import css from "highlight.js/lib/languages/css";
 import diff from "highlight.js/lib/languages/diff";
@@ -228,7 +229,10 @@ function compactDiffOps(ops: DiffOp[], ctxRadius = 3): DiffOp[] {
     }
     let j = i;
     while (j < ops.length && !keep[j]) j += 1;
-    out.push({ type: "ctx", text: `··· ${j - i} 行未改动 ···` });
+    out.push({
+      type: "ctx",
+      text: rt("markdown.unchangedLines", { n: j - i }),
+    });
     i = j;
   }
   return out;
@@ -236,7 +240,7 @@ function compactDiffOps(ops: DiffOp[], ctxRadius = 3): DiffOp[] {
 
 /** Collapse marker lines are not source — skip syntax highlight. */
 function isCollapseMarker(text: string): boolean {
-  return /^··· \d+ 行未改动 ···$/.test(text);
+  return /^··· \d+/.test(text) && text.endsWith("···");
 }
 
 /**

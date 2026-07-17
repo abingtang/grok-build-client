@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useI18n, type Locale } from "../i18n";
 import type {
   EffortLevel,
   PermissionMode,
@@ -18,6 +19,7 @@ export interface SettingsState {
   memory: boolean;
   selfCheck: boolean;
   themeLight: boolean;
+  locale: Locale;
 }
 
 interface Props {
@@ -134,20 +136,30 @@ function Segmented({
   );
 }
 
-const PERMISSION_LABELS: Record<string, string> = {
-  default: "默认",
-  acceptEdits: "接受编辑",
-  auto: "自动",
-  dontAsk: "不问",
-  plan: "Plan",
-  bypassPermissions: "绕过权限",
-};
-
 export function SettingsModal({ open, value, onChange, onClose }: Props) {
+  const { t, setLocale } = useI18n();
+
   if (!open) return null;
 
   const set = <K extends keyof SettingsState>(key: K, v: SettingsState[K]) =>
     onChange({ ...value, [key]: v });
+
+  const effortOptions = [
+    { value: "low", label: t("settings.effortLow") },
+    { value: "medium", label: t("settings.effortMedium") },
+    { value: "high", label: t("settings.effortHigh") },
+    { value: "xhigh", label: t("settings.effortXhigh") },
+    { value: "max", label: t("settings.effortMax") },
+  ];
+
+  const permissionLabels: Record<string, string> = {
+    default: t("settings.permDefault"),
+    acceptEdits: t("settings.permAcceptEdits"),
+    auto: t("settings.permAuto"),
+    dontAsk: t("settings.permDontAsk"),
+    plan: t("settings.permPlan"),
+    bypassPermissions: t("settings.permBypass"),
+  };
 
   return (
     <div className="overlay settings-overlay" onClick={onClose}>
@@ -158,23 +170,41 @@ export function SettingsModal({ open, value, onChange, onClose }: Props) {
         aria-labelledby="settings-title"
       >
         <header className="settings-header">
-          <h3 id="settings-title">设置</h3>
+          <h3 id="settings-title">{t("settings.title")}</h3>
           <button
             type="button"
             className="settings-close"
             onClick={onClose}
-            aria-label="关闭"
+            aria-label={t("common.close")}
           >
             ×
           </button>
         </header>
 
         <div className="settings-body">
-          <h4 className="settings-section-label">常规</h4>
+          <h4 className="settings-section-label">{t("settings.general")}</h4>
           <div className="settings-card">
             <SettingsRow
-              title="模型"
-              description="当前会话使用的 Grok 模型"
+              title={t("language.label")}
+              description={t("language.description")}
+            >
+              <Segmented
+                value={value.locale}
+                onChange={(v) => {
+                  const locale = v as Locale;
+                  set("locale", locale);
+                  setLocale(locale);
+                }}
+                options={[
+                  { value: "zh", label: t("language.zh") },
+                  { value: "en", label: t("language.en") },
+                ]}
+              />
+            </SettingsRow>
+
+            <SettingsRow
+              title={t("common.model")}
+              description={t("settings.modelDesc")}
             >
               <PillSelect
                 value={value.model}
@@ -184,43 +214,33 @@ export function SettingsModal({ open, value, onChange, onClose }: Props) {
             </SettingsRow>
 
             <SettingsRow
-              title="推理力度"
-              description="对应 --effort，影响思考深度与耗时"
+              title={t("settings.effort")}
+              description={t("settings.effortDesc")}
             >
               <PillSelect
                 value={value.effort}
                 onChange={(v) => set("effort", v as EffortLevel)}
-                options={[
-                  { value: "low", label: "低" },
-                  { value: "medium", label: "中" },
-                  { value: "high", label: "高" },
-                  { value: "xhigh", label: "很高" },
-                  { value: "max", label: "最大" },
-                ]}
+                options={effortOptions}
               />
             </SettingsRow>
 
             <SettingsRow
-              title="深度推理"
-              description="对应 --reasoning-effort，关闭则不启用额外推理"
+              title={t("settings.reasoning")}
+              description={t("settings.reasoningDesc")}
             >
               <PillSelect
                 value={value.reasoning}
                 onChange={(v) => set("reasoning", v as ReasoningEffort)}
                 options={[
-                  { value: "off", label: "关闭" },
-                  { value: "low", label: "低" },
-                  { value: "medium", label: "中" },
-                  { value: "high", label: "高" },
-                  { value: "xhigh", label: "很高" },
-                  { value: "max", label: "最大" },
+                  { value: "off", label: t("settings.reasoningOff") },
+                  ...effortOptions,
                 ]}
               />
             </SettingsRow>
 
             <SettingsRow
-              title="权限模式"
-              description="工具调用审批策略（始终批准开启时忽略此项）"
+              title={t("settings.permissionMode")}
+              description={t("settings.permissionModeDesc")}
             >
               <PillSelect
                 value={value.permissionMode}
@@ -235,14 +255,14 @@ export function SettingsModal({ open, value, onChange, onClose }: Props) {
                   "bypassPermissions",
                 ].map((x) => ({
                   value: x,
-                  label: PERMISSION_LABELS[x] || x,
+                  label: permissionLabels[x] || x,
                 }))}
               />
             </SettingsRow>
 
             <SettingsRow
-              title="Best-of-N"
-              description="并行候选数量（--best-of-n）"
+              title={t("settings.bestOfN")}
+              description={t("settings.bestOfNDesc")}
             >
               <Segmented
                 value={String(value.bestOfN)}
@@ -255,66 +275,66 @@ export function SettingsModal({ open, value, onChange, onClose }: Props) {
             </SettingsRow>
 
             <SettingsRow
-              title="始终批准"
-              description="自动批准工具调用（--always-approve）"
+              title={t("settings.alwaysApprove")}
+              description={t("settings.alwaysApproveDesc")}
             >
               <Toggle
-                label="始终批准"
+                label={t("settings.alwaysApprove")}
                 checked={value.alwaysApprove}
                 onChange={(v) => set("alwaysApprove", v)}
               />
             </SettingsRow>
 
             <SettingsRow
-              title="Web 搜索"
-              description="允许代理使用网络搜索获取资料"
+              title={t("settings.webSearch")}
+              description={t("settings.webSearchDesc")}
             >
               <Toggle
-                label="Web 搜索"
+                label={t("settings.webSearch")}
                 checked={value.webSearch}
                 onChange={(v) => set("webSearch", v)}
               />
             </SettingsRow>
 
             <SettingsRow
-              title="子代理"
-              description="允许生成并委派子代理(subagents)"
+              title={t("settings.subagents")}
+              description={t("settings.subagentsDesc")}
             >
               <Toggle
-                label="子代理"
+                label={t("settings.subagents")}
                 checked={value.subagents}
                 onChange={(v) => set("subagents", v)}
               />
             </SettingsRow>
 
             <SettingsRow
-              title="实验性记忆"
-              description="跨回合记忆（--experimental-memory）"
+              title={t("settings.memory")}
+              description={t("settings.memoryDesc")}
             >
               <Toggle
-                label="实验性记忆"
+                label={t("settings.memory")}
                 checked={value.memory}
                 onChange={(v) => set("memory", v)}
               />
             </SettingsRow>
 
             <SettingsRow
-              title="自验证"
-              description="回合后自动检查（--check）"
+              title={t("settings.selfCheck")}
+              description={t("settings.selfCheckDesc")}
             >
               <Toggle
-                label="自验证"
+                label={t("settings.selfCheck")}
                 checked={value.selfCheck}
                 onChange={(v) => set("selfCheck", v)}
               />
             </SettingsRow>
 
             <SettingsRow
-              title="浅色主题"
-              description="切换界面为浅色外观"
+              title={t("settings.themeLight")}
+              description={t("settings.themeLightDesc")}
             >
               <Toggle
-                label="浅色主题"
+                label={t("settings.themeLight")}
                 checked={value.themeLight}
                 onChange={(v) => set("themeLight", v)}
               />

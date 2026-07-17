@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useI18n } from "../i18n";
 
 export type InspectorTab =
   | "context"
@@ -85,20 +86,21 @@ interface Props {
   onFork: () => void;
 }
 
-const TABS: { id: InspectorTab; label: string }[] = [
-  { id: "context", label: "上下文" },
-  { id: "plan", label: "Plan" },
-  { id: "rewind", label: "Rewind" },
-  { id: "mcp", label: "MCP" },
-  { id: "skills", label: "Skills" },
-  { id: "hooks", label: "Hooks" },
-  { id: "worktree", label: "Worktree" },
-  { id: "subagents", label: "子代理" },
-];
-
 export function InspectorDrawer(props: Props) {
   const { open, tab, onTab, onClose } = props;
+  const { t } = useI18n();
   const [selectedRewind, setSelectedRewind] = useState<number | null>(null);
+
+  const TABS: { id: InspectorTab; label: string }[] = [
+    { id: "context", label: t("inspector.tabContext") },
+    { id: "plan", label: t("inspector.tabPlan") },
+    { id: "rewind", label: t("inspector.tabRewind") },
+    { id: "mcp", label: t("inspector.tabMcp") },
+    { id: "skills", label: t("inspector.tabSkills") },
+    { id: "hooks", label: t("inspector.tabHooks") },
+    { id: "worktree", label: t("inspector.tabWorktree") },
+    { id: "subagents", label: t("inspector.tabSubagents") },
+  ];
 
   useEffect(() => {
     if (open && tab === "context") props.onRefreshContext();
@@ -126,23 +128,23 @@ export function InspectorDrawer(props: Props) {
         className="inspector-drawer"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
-        aria-label="能力检查器"
+        aria-label={t("inspector.aria")}
       >
         <header className="inspector-header">
-          <h3>能力检查器</h3>
+          <h3>{t("inspector.title")}</h3>
           <button type="button" className="btn btn-sm" onClick={onClose}>
-            关闭
+            {t("common.close")}
           </button>
         </header>
         <div className="inspector-tabs">
-          {TABS.map((t) => (
+          {TABS.map((tabItem) => (
             <button
-              key={t.id}
+              key={tabItem.id}
               type="button"
-              className={tab === t.id ? "on" : ""}
-              onClick={() => onTab(t.id)}
+              className={tab === tabItem.id ? "on" : ""}
+              onClick={() => onTab(tabItem.id)}
             >
-              {t.label}
+              {tabItem.label}
             </button>
           ))}
         </div>
@@ -151,7 +153,7 @@ export function InspectorDrawer(props: Props) {
             <div className="insp-section">
               <div className="insp-actions">
                 <button type="button" className="btn btn-sm" onClick={props.onRefreshContext}>
-                  刷新
+                  {t("common.refresh")}
                 </button>
                 <button type="button" className="btn btn-sm" onClick={props.onSessionInfo}>
                   /session-info
@@ -161,7 +163,7 @@ export function InspectorDrawer(props: Props) {
                 </button>
               </div>
               {props.contextLoading ? (
-                <p className="muted">加载中…</p>
+                <p className="muted">{t("common.loading")}</p>
               ) : props.context ? (
                 <>
                   <div className="context-meter">
@@ -172,7 +174,7 @@ export function InspectorDrawer(props: Props) {
                       />
                     </div>
                     <div className="context-meter-label">
-                      上下文 {pct != null ? `${pct}%` : "—"}
+                      {t("inspector.contextUsage", { pct: pct != null ? `${pct}%` : t("common.empty") })}
                       {used != null && total != null
                         ? ` · ${used.toLocaleString()} / ${total.toLocaleString()} tokens`
                         : ""}
@@ -199,7 +201,7 @@ export function InspectorDrawer(props: Props) {
                   </dl>
                 </>
               ) : (
-                <p className="muted">无会话数据。发送消息或选择历史会话后刷新。</p>
+                <p className="muted">{t("inspector.noSessionData")}</p>
               )}
             </div>
           )}
@@ -212,19 +214,18 @@ export function InspectorDrawer(props: Props) {
                   checked={props.planMode}
                   onChange={(e) => props.onTogglePlan(e.target.checked)}
                 />
-                Plan 模式（session/set_mode plan）
+                {t("inspector.planModeLabel")}
               </label>
               <p className="muted">
-                开启后，下一轮提示会以 Plan 模式运行：先规划再执行（对齐 TUI
-                /plan）。关闭恢复 default。
+                {t("inspector.planModeHint")}
               </p>
               {props.planText ? (
                 <pre className="insp-pre">{props.planText}</pre>
               ) : (
-                <p className="muted">尚无 plan 条目。运行带 plan 的任务后会出现在此与消息流中。</p>
+                <p className="muted">{t("inspector.noPlan")}</p>
               )}
               <button type="button" className="btn btn-sm" onClick={props.onFork}>
-                Fork 当前会话
+                {t("inspector.forkSession")}
               </button>
             </div>
           )}
@@ -233,14 +234,14 @@ export function InspectorDrawer(props: Props) {
             <div className="insp-section">
               <div className="insp-actions">
                 <button type="button" className="btn btn-sm" onClick={props.onRefreshRewind}>
-                  刷新回退点
+                  {t("inspector.refreshRewind")}
                 </button>
               </div>
               {props.rewindLoading ? (
-                <p className="muted">加载中…</p>
+                <p className="muted">{t("common.loading")}</p>
               ) : props.rewindPoints.length === 0 ? (
                 <p className="muted">
-                  无 rewind 点。仅在 agent 修改过文件的会话中生成（rewind_points.jsonl）。
+                  {t("inspector.noRewind")}
                 </p>
               ) : (
                 <ul className="rewind-list">
@@ -260,7 +261,7 @@ export function InspectorDrawer(props: Props) {
                             : ""}
                         </span>
                         <span className="rewind-label">
-                          {p.label || `${p.files.length} 个文件快照`}
+                          {p.label || t("inspector.fileSnapshots", { n: p.files.length })}
                         </span>
                         <span className="muted">{p.files.length} files</span>
                       </button>
@@ -278,10 +279,10 @@ export function InspectorDrawer(props: Props) {
                             className="btn btn-sm btn-danger"
                             onClick={() => props.onApplyRewind(p.promptIndex)}
                           >
-                            恢复文件到此点
+                            {t("inspector.restorePoint")}
                           </button>
                           <p className="muted">
-                            将写入快照中的文件内容。消息区会截断到该轮用户提示之后。
+                            {t("inspector.restoreHint")}
                           </p>
                         </div>
                       ) : null}
@@ -296,11 +297,11 @@ export function InspectorDrawer(props: Props) {
             <div className="insp-section">
               <div className="insp-actions">
                 <button type="button" className="btn btn-sm" onClick={props.onRefreshMcp}>
-                  刷新 MCP
+                  {t("inspector.refreshMcp")}
                 </button>
               </div>
               {props.mcpServers.length === 0 ? (
-                <p className="muted">未配置 MCP。编辑 ~/.grok/config.toml 的 [mcp_servers.*]</p>
+                <p className="muted">{t("inspector.noMcp")}</p>
               ) : (
                 <ul className="mcp-list">
                   {props.mcpServers.map((s) => (
@@ -318,7 +319,7 @@ export function InspectorDrawer(props: Props) {
           {tab === "skills" && (
             <div className="insp-section">
               {props.skills.length === 0 ? (
-                <p className="muted">未发现 invocable skills（~/.grok/skills）</p>
+                <p className="muted">{t("inspector.noSkills")}</p>
               ) : (
                 <ul className="mcp-list">
                   {props.skills.map((s) => (
@@ -350,10 +351,10 @@ export function InspectorDrawer(props: Props) {
             <div className="insp-section">
               <div className="insp-actions">
                 <button type="button" className="btn btn-sm" onClick={props.onRefreshWorktree}>
-                  刷新
+                  {t("common.refresh")}
                 </button>
                 <button type="button" className="btn btn-sm" onClick={props.onFork}>
-                  Fork 会话
+                  {t("inspector.forkSession")}
                 </button>
               </div>
               <pre className="insp-pre">{props.worktreeText || "(empty)"}</pre>
@@ -364,7 +365,7 @@ export function InspectorDrawer(props: Props) {
             <div className="insp-section">
               {props.subagents.length === 0 ? (
                 <p className="muted">
-                  当前无活跃/近期子代理。运行中 spawn 时会实时显示在此。
+                  {t("inspector.noSubagents")}
                 </p>
               ) : (
                 <ul className="mcp-list">

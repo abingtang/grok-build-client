@@ -5,6 +5,7 @@
 import { basename } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 import { FileIcon, XIcon } from "lucide-react";
+import { useI18n } from "../i18n";
 
 export type FilePreviewSidebarProps = {
   open: boolean;
@@ -21,7 +22,9 @@ export function FilePreviewSidebar({
   content,
   onClose,
 }: FilePreviewSidebarProps) {
-  const label = title || (path ? basename(path) || path : "文件预览");
+  const { t } = useI18n();
+  const label =
+    title || (path ? basename(path) || path : t("preview.title"));
   const displayPath = path || "";
 
   return (
@@ -33,7 +36,7 @@ export function FilePreviewSidebar({
           : "translate-x-full pointer-events-none",
       )}
       aria-hidden={!open}
-      aria-label="文件预览"
+      aria-label={t("preview.title")}
     >
       <header className="flex shrink-0 items-start gap-2 border-b border-border/70 px-3 py-2.5">
         <div
@@ -59,8 +62,8 @@ export function FilePreviewSidebar({
           type="button"
           className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           onClick={onClose}
-          aria-label="关闭预览"
-          title="关闭"
+          aria-label={t("preview.close")}
+          title={t("common.close")}
         >
           <XIcon className="size-4" />
         </button>
@@ -73,7 +76,7 @@ export function FilePreviewSidebar({
           </pre>
         ) : (
           <div className="px-3.5 py-6 text-center text-xs text-muted-foreground">
-            暂无预览内容
+            {t("preview.empty")}
           </div>
         )}
       </div>

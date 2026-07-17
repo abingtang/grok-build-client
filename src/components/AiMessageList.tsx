@@ -12,6 +12,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { rt, useI18n } from "../i18n";
 import {
   Conversation,
   ConversationAutoScroll,
@@ -249,7 +250,7 @@ function isSkillLikeTool(m: ChatMessage): boolean {
 
 function skillDisplayName(m: ChatMessage): string {
   const title = (m.toolName || "").trim();
-  if (!title) return "技能";
+  if (!title) return rt("chat.skill");
   const cleaned = title
     .replace(/^(读取|加载|load|read)\s*/i, "")
     .replace(/\s*(技能|skill)\s*$/i, "")
@@ -378,7 +379,7 @@ function EditedFilesSummary({
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-[13.5px] font-medium leading-tight text-foreground">
-            已编辑 {n} 个文件
+            {rt("chat.editedFiles", { n })}
           </div>
           <DiffStats
             added={totalAdded}
@@ -412,7 +413,7 @@ function EditedFilesSummary({
           className="flex w-full items-center gap-1 border-t border-border/50 px-3.5 py-2.5 text-left text-[12.5px] text-muted-foreground transition-colors hover:bg-white/[0.03] hover:text-foreground"
           onClick={() => setExpanded((v) => !v)}
         >
-          {expanded ? "收起" : `再显示 ${hidden} 个文件`}
+          {expanded ? rt("chat.collapse") : rt("chat.showMoreFiles", { n: hidden })}
           <ChevronDownIcon
             className={cn(
               "size-3.5 opacity-70 transition-transform",
@@ -451,7 +452,7 @@ function FileOpsList({
         list.push({
           id: m.id,
           kind: "plan",
-          label: <span>计划{m.streaming ? "中…" : ""}</span>,
+          label: <span>{m.streaming ? rt("chat.planStreaming") : rt("chat.plan")}</span>,
         });
         continue;
       }
@@ -461,7 +462,7 @@ function FileOpsList({
           kind: "subagent",
           label: (
             <span>
-              子代理{m.toolName ? ` · ${m.toolName}` : ""}
+              {rt("chat.subagent")}{m.toolName ? ` · ${m.toolName}` : ""}
               {m.status ? ` · ${m.status}` : ""}
             </span>
           ),
@@ -478,9 +479,9 @@ function FileOpsList({
           kind: "skill",
           label: (
             <span>
-              读取{" "}
+              {rt("chat.read")}{" "}
               <span className="text-foreground/80">{skillDisplayName(m)}</span>{" "}
-              技能
+              {rt("chat.skill")}
             </span>
           ),
           message: m,
@@ -499,7 +500,7 @@ function FileOpsList({
           clickable: true,
           label: (
             <span>
-              已读取{" "}
+              {rt("chat.readDone")}{" "}
               <span className="font-mono text-foreground/85 underline decoration-border underline-offset-2">
                 {display}
               </span>
@@ -536,7 +537,7 @@ function FileOpsList({
       list.push({
         id: m.id,
         kind: "tool",
-        label: <span>{m.toolName || String(m.meta?.toolKind || "工具")}</span>,
+        label: <span>{m.toolName || String(m.meta?.toolKind || rt("chat.tool"))}</span>,
         message: m,
       });
     }
@@ -552,7 +553,7 @@ function FileOpsList({
         clickable: true,
         label: (
           <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
-            <span>已编辑</span>
+            <span>{rt("chat.edited")}</span>
             <span className="font-mono text-foreground/85 underline decoration-border underline-offset-2">
               {info.displayPath}
             </span>
@@ -574,13 +575,13 @@ function FileOpsList({
     (r) => r.kind === "tool" || r.kind === "shell",
   ).length;
   const summaryBits: string[] = [];
-  if (nTool || nSkill) summaryBits.push("已加载工具");
-  if (nEdit) summaryBits.push(nEdit > 1 ? "编辑了多个文件" : "编辑文件");
-  if (nRead) summaryBits.push("读取文件");
+  if (nTool || nSkill) summaryBits.push(rt("chat.loadedTools"));
+  if (nEdit) summaryBits.push(nEdit > 1 ? rt("chat.editedMulti") : rt("chat.editedOne"));
+  if (nRead) summaryBits.push(rt("chat.readFiles"));
   const summaryLabel =
     summaryBits.length > 0
       ? summaryBits.join("")
-      : `已完成 ${rows.length} 项操作`;
+      : rt("chat.completedOps", { n: rows.length });
 
   const openPreview = async (row: (typeof rows)[number]) => {
     if (!onPreview || !row.clickable || !row.message) return;
@@ -700,7 +701,7 @@ function ReadFileRow({
       disabled={live || !onPreview}
     >
       <BookOpenIcon className="size-3.5 shrink-0 opacity-70" />
-      <span className="shrink-0">{live ? "读取中" : "已读取"}</span>
+      <span className="shrink-0">{live ? rt("chat.reading") : rt("chat.readDone")}</span>
       <code className="min-w-0 truncate font-mono text-[11.5px] text-foreground/85 underline decoration-border underline-offset-2">
         {display}
       </code>
@@ -729,8 +730,8 @@ function ProcessToolRow({
       <div className="flex items-center gap-2 py-0.5 text-[12.5px] text-muted-foreground">
         <WrenchIcon className="size-3.5 shrink-0 opacity-70" />
         <span>
-          读取{" "}
-          <span className="text-foreground/80">{skillDisplayName(m)}</span> 技能
+          {rt("chat.read")}{" "}
+          <span className="text-foreground/80">{skillDisplayName(m)}</span> {rt("chat.skill")}
         </span>
       </div>
     );
@@ -815,7 +816,7 @@ function PlanItem({ m }: { m: ChatMessage }) {
   return (
     <Plan isStreaming={!!m.streaming} defaultOpen={!!m.streaming}>
       <PlanHeader>
-        <PlanTitle isStreaming={!!m.streaming}>计划</PlanTitle>
+        <PlanTitle isStreaming={!!m.streaming}>{rt("chat.plan")}</PlanTitle>
         <PlanTrigger />
       </PlanHeader>
       <PlanContent>
@@ -840,7 +841,7 @@ function ProcessItem({
     return (
       <div className="rounded-md border border-dashed border-border/70 px-3 py-2 text-xs text-muted-foreground">
         <strong className="text-foreground/80">
-          子代理{m.toolName ? ` · ${m.toolName}` : ""}
+          {rt("chat.subagent")}{m.toolName ? ` · ${m.toolName}` : ""}
           {m.status ? ` · ${m.status}` : ""}
         </strong>
         {m.content ? (
@@ -945,11 +946,11 @@ function fileOpsGroupLabel(items: ChatMessage[]): string {
     else nTool += 1;
   }
   const bits: string[] = [];
-  if (nTool || nSkill) bits.push("已加载工具");
-  if (nEdit > 1) bits.push("编辑了多个文件");
-  else if (nEdit === 1) bits.push("编辑文件");
-  if (nRead) bits.push("读取文件");
-  return bits.length ? bits.join("") : "文件操作";
+  if (nTool || nSkill) bits.push(rt("chat.loadedTools"));
+  if (nEdit > 1) bits.push(rt("chat.editedMulti"));
+  else if (nEdit === 1) bits.push(rt("chat.editedOne"));
+  if (nRead) bits.push(rt("chat.readFiles"));
+  return bits.length ? bits.join("") : rt("chat.fileOps");
 }
 
 function extractShellCommand(m: ChatMessage): string {
@@ -1020,7 +1021,7 @@ function FileOpLine({
       >
         <PencilIcon className={PROCESS_DETAIL_ICON} />
         <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5 text-sm font-normal leading-none">
-          <span>已编辑</span>
+          <span>{rt("chat.edited")}</span>
           <span className="font-mono text-foreground/85 underline decoration-border underline-offset-2">
             {info.displayPath}
           </span>
@@ -1035,8 +1036,7 @@ function FileOpLine({
       <div className={PROCESS_DETAIL_ROW}>
         <WrenchIcon className={PROCESS_DETAIL_ICON} />
         <span className="text-sm font-normal leading-none">
-          读取 <span className="text-foreground/80">{skillDisplayName(m)}</span>{" "}
-          技能
+          {rt("chat.readSkill", { name: skillDisplayName(m) })}
         </span>
       </div>
     );
@@ -1061,7 +1061,7 @@ function FileOpLine({
       >
         <BookOpenIcon className={PROCESS_DETAIL_ICON} />
         <span className="text-sm font-normal leading-none">
-          已读取{" "}
+          {rt("chat.readDone")}{" "}
           <span className="font-mono text-foreground/85 underline decoration-border underline-offset-2">
             {display}
           </span>
@@ -1074,7 +1074,7 @@ function FileOpLine({
     <div className={PROCESS_DETAIL_ROW}>
       <WrenchIcon className={PROCESS_DETAIL_ICON} />
       <span className="text-sm font-normal leading-none">
-        {m.toolName || String(m.meta?.toolKind || "工具")}
+        {m.toolName || String(m.meta?.toolKind || rt("chat.tool"))}
       </span>
     </div>
   );
@@ -1094,9 +1094,9 @@ function FileOpsRunGroup({
   if (!items.length) return null;
   const label =
     items.length === 1 && isReadTool(items[0])
-      ? `读取文件`
+      ? rt("chat.readFiles")
       : items.length === 1 && isEditTool(items[0])
-        ? `编辑文件`
+        ? rt("chat.editedOne")
         : fileOpsGroupLabel(items);
 
   return (
@@ -1139,7 +1139,7 @@ function ShellCommandItem({
       <CollapsibleTrigger className={PROCESS_DETAIL_ROW}>
         <TerminalIcon className={PROCESS_DETAIL_ICON} />
         <span className="min-w-0 flex-1 truncate text-sm font-normal leading-none">
-          已运行 <span className="font-mono text-foreground/85">{short}</span>
+          {rt("chat.ranCommand")} <span className="font-mono text-foreground/85">{short}</span>
         </span>
         <ChevronDownIcon
           className={cn(PROCESS_DETAIL_CHEVRON, !open && "-rotate-90")}
@@ -1160,7 +1160,7 @@ function ShellCommandItem({
                 {output.slice(0, 8000)}
               </pre>
             ) : (
-              "无输出"
+              rt("chat.noOutput")
             )}
           </div>
           <div
@@ -1169,7 +1169,7 @@ function ShellCommandItem({
               ok ? "text-emerald-500" : "text-destructive",
             )}
           >
-            {ok ? "✓ 成功" : "✕ 失败"}
+            {ok ? rt("chat.success") : rt("chat.failed")}
           </div>
         </div>
       </CollapsibleContent>
@@ -1177,7 +1177,7 @@ function ShellCommandItem({
   );
 }
 
-/** 连续 shell 段：多条 →「运行了多个命令」；单条 → 直接已运行 */
+/** 连续 shell 段：多条 →「{rt("chat.ranMultiple")}」；单条 → 直接已运行 */
 function ShellRunGroup({
   items,
   defaultOpen,
@@ -1197,7 +1197,7 @@ function ShellRunGroup({
       <CollapsibleTrigger className={PROCESS_DETAIL_ROW}>
         <TerminalIcon className={PROCESS_DETAIL_ICON} />
         <span className="min-w-0 flex-1 truncate text-sm font-normal leading-none">
-          运行了多个命令
+          {rt("chat.ranMultiple")}
         </span>
         <ChevronDownIcon
           className={cn(PROCESS_DETAIL_CHEVRON, !open && "-rotate-90")}
@@ -1282,7 +1282,7 @@ function ProcessTimelineBody({
                   <div key={m.id} className={PROCESS_DETAIL_ROW}>
                     <WrenchIcon className={PROCESS_DETAIL_ICON} />
                     <span className="text-sm font-normal leading-none">
-                      子代理{m.toolName ? ` · ${m.toolName}` : ""}
+                      {rt("chat.subagent")}{m.toolName ? ` · ${m.toolName}` : ""}
                       {m.status ? ` · ${m.status}` : ""}
                     </span>
                   </div>
@@ -1292,7 +1292,7 @@ function ProcessTimelineBody({
                 <div key={m.id} className={PROCESS_DETAIL_ROW}>
                   <WrenchIcon className={PROCESS_DETAIL_ICON} />
                   <span className="text-sm font-normal leading-none">
-                    {m.toolName || String(m.meta?.toolKind || "工具")}
+                    {m.toolName || String(m.meta?.toolKind || rt("chat.tool"))}
                   </span>
                 </div>
               );
@@ -1335,11 +1335,11 @@ function ProcessPanel({
   const dur = formatDuration(elapsedMs);
   const label = turn.live
     ? dur
-      ? `处理中 ${dur}`
-      : "处理中"
+      ? rt("chat.processingWith", { dur })
+      : rt("chat.processing")
     : dur
-      ? `已处理 ${dur}`
-      : "已处理";
+      ? rt("chat.processedWith", { dur })
+      : rt("chat.processed");
 
   const thoughts = turn.process.filter((m) => m.role === "thought").length;
   const ops =
@@ -1348,9 +1348,9 @@ function ProcessPanel({
   const summary =
     !open && (thoughts || ops || notes.length)
       ? ` · ${[
-          thoughts ? `${thoughts} 思考` : "",
-          ops ? `${ops} 操作` : "",
-          notes.length ? `${notes.length} 中间回复` : "",
+          thoughts ? rt("chat.thoughtsCount", { n: thoughts }) : "",
+          ops ? rt("chat.opsCount", { n: ops }) : "",
+          notes.length ? rt("chat.notesCount", { n: notes.length }) : "",
         ]
           .filter(Boolean)
           .join(" · ")}`
@@ -1414,7 +1414,7 @@ function AssistantResult({
       <Message from="assistant">
         <MessageContent className="w-full max-w-none">
           <Shimmer as="p" className="text-sm" duration={1.8}>
-            Grok 正在生成…
+            {rt("chat.generating")}
           </Shimmer>
         </MessageContent>
       </Message>
@@ -1434,13 +1434,17 @@ function AssistantResult({
       </Message>
       {!m.streaming && m.content ? (
         <MessageActions className="opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
-          <MessageAction tooltip="复制" label="复制" onClick={copy}>
+          <MessageAction
+            tooltip={rt("common.copy")}
+            label={rt("common.copy")}
+            onClick={copy}
+          >
             <CopyIcon className="size-3.5" />
           </MessageAction>
           {showFork && onFork ? (
             <MessageAction
-              tooltip="从此分叉"
-              label="分叉"
+              tooltip={rt("chat.forkFromHere")}
+              label={rt("common.fork")}
               disabled={forkDisabled}
               onClick={() => onFork(m.id)}
             >
@@ -1519,6 +1523,8 @@ export function AiMessageList({
   onForkMessage,
   forkDisabled,
 }: Props) {
+  const { t } = useI18n();
+
   const [preview, setPreview] = useState<FilePreviewState | null>(null);
   const sessionBusy = !!streamStatus;
   const segments = useMemo(
@@ -1539,12 +1545,14 @@ export function AiMessageList({
   const phaseLabel =
     !hasLiveTurn && streamStatus
       ? streamStatus.phase === "waiting"
-        ? "正在连接 Grok…"
+        ? t("status.connectingGrok")
         : streamStatus.phase === "thinking"
-          ? "Grok 正在思考…"
+          ? t("status.grokThinking")
           : streamStatus.phase === "writing"
-            ? "Grok 正在生成…"
-            : null
+            ? t("status.grokWriting")
+            : streamStatus.phase === "permission"
+              ? t("status.waitToolApprove")
+              : null
       : null;
 
   const elapsedSec =
@@ -1560,8 +1568,8 @@ export function AiMessageList({
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <ConversationEmptyState
-          title="Grok Build Desktop"
-          description={`选择左侧会话或新建对话开始。模型 ${modelLabel || "grok"} · Enter 发送 · / 命令`}
+          title={t("chat.emptyTitle")}
+          description={t("chat.emptyDesc", { model: modelLabel || "grok" })}
         />
       </div>
     );

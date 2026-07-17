@@ -256,17 +256,28 @@ function scanSpawnParentMap(sessionDir: string): Map<string, string> {
         | Record<string, unknown>
         | undefined;
       if (!update) continue;
-      const su = String(update.sessionUpdate || "");
-      if (su !== "subagent_spawned" && su !== "agent_spawned") {
-        // still try ids if present
-        if (!update.child_session_id && !update.subagent_id) continue;
-      }
+      const su = String(
+        update.sessionUpdate || update.session_update || "",
+      );
       const childId = String(
-        update.child_session_id || update.subagent_id || "",
+        update.child_session_id ||
+          update.childSessionId ||
+          update.subagent_id ||
+          update.subagentId ||
+          "",
       ).trim();
       const parentId = String(
-        update.parent_session_id || params?.sessionId || "",
+        update.parent_session_id ||
+          update.parentSessionId ||
+          params?.sessionId ||
+          "",
       ).trim();
+      // Accept subagent_spawned / agent_spawned, or any line that carries both ids
+      const isSpawn =
+        su === "subagent_spawned" ||
+        su === "agent_spawned" ||
+        (childId.length > 0 && parentId.length > 0);
+      if (!isSpawn) continue;
       if (childId && parentId && childId !== parentId) {
         map.set(childId, parentId);
       }

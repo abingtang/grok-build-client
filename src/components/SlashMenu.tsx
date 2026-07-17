@@ -1,3 +1,4 @@
+import { useI18n } from "../i18n";
 import type { SlashCommandDef } from "../lib/types";
 
 interface Props {
@@ -8,10 +9,12 @@ interface Props {
 }
 
 export function SlashMenu({ items, activeIndex, onSelect, onHover }: Props) {
+  const { t } = useI18n();
+
   if (items.length === 0) {
     return (
       <div className="slash-menu">
-        <div className="empty-hint">没有匹配的命令</div>
+        <div className="empty-hint">{t("slash.noMatch")}</div>
       </div>
     );
   }

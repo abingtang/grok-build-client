@@ -1,16 +1,18 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { useI18n } from "../i18n";
 
 /**
  * Chat-transcript-shaped skeleton shown while a session is loading.
  * Layout mirrors AiMessageList ConversationContent (max-w-3xl, px-5, py-5).
  */
 export function ChatSessionSkeleton() {
+  const { t } = useI18n();
   return (
     <div
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
       role="status"
       aria-busy="true"
-      aria-label="正在加载会话"
+      aria-label={t("skeleton.loadingSession")}
       aria-live="polite"
     >
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-5">
