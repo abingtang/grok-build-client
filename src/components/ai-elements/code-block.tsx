@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { highlightCode, normalizeLang } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import {
@@ -31,7 +32,13 @@ export function CodeBlock({
   ...props
 }: CodeBlockProps) {
   const value = useMemo(() => ({ code }), [code]);
-  const lines = code.split("\n");
+  const lang = normalizeLang(language);
+  const html = useMemo(() => highlightCode(code, language), [code, language]);
+  const lines = useMemo(() => {
+    if (!showLineNumbers) return null;
+    // Highlight whole block then split by lines — imperfect but keeps tokens
+    return html.split("\n");
+  }, [html, showLineNumbers]);
 
   return (
     <CodeBlockContext.Provider value={value}>
@@ -44,21 +51,26 @@ export function CodeBlock({
         {...props}
       >
         {children}
-        <pre className="max-h-96 overflow-auto p-3 font-mono text-[11px] leading-relaxed">
-          {showLineNumbers ? (
-            <code className="grid grid-cols-[auto_1fr] gap-x-3">
+        <pre className="max-h-96 overflow-auto p-3 font-mono text-[12px] leading-relaxed">
+          {showLineNumbers && lines ? (
+            <code
+              className={cn("hljs language-" + lang, "grid grid-cols-[auto_1fr] gap-x-3")}
+            >
               {lines.map((line, i) => (
                 // eslint-disable-next-line react/no-array-index-key
                 <span key={i} className="contents">
                   <span className="select-none text-right text-muted-foreground/60">
                     {i + 1}
                   </span>
-                  <span>{line || " "}</span>
+                  <span dangerouslySetInnerHTML={{ __html: line || " " }} />
                 </span>
               ))}
             </code>
           ) : (
-            <code>{code}</code>
+            <code
+              className={cn("hljs language-" + lang)}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
           )}
         </pre>
       </div>

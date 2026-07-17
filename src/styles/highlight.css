@@ -164,6 +164,60 @@
   margin: 0;
 }
 
+/* 右侧文件预览侧栏 */
+.file-preview-pre {
+  margin: 0;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.file-preview-code.hljs {
+  display: block;
+  padding: 0;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.55;
+  tab-size: 2;
+  background: transparent;
+}
+
+/* 编辑 diff 视图：占满侧栏宽度，行 tint 贴边 */
+.file-preview-diff {
+  display: block;
+  width: 100%;
+  min-height: 100%;
+  padding: 8px 0 16px;
+}
+
+.file-preview-diff .diff-view,
+.file-preview-diff .hljs.diff-view {
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.file-preview-diff .diff-line {
+  padding-right: 12px;
+}
+
+.file-preview-diff .diff-sign {
+  width: 1.5rem;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+/* 确保预览内 token 颜色不被全局 text 继承覆盖 */
+.file-preview-code.hljs .hljs-keyword,
+.file-preview-code.hljs .hljs-string,
+.file-preview-code.hljs .hljs-comment,
+.file-preview-code.hljs .hljs-title,
+.file-preview-code.hljs .hljs-attr,
+.file-preview-code.hljs .hljs-number {
+  /* 颜色由上方 .hljs-* 规则提供；此处只防止被 parent 盖掉 */
+  font-style: inherit;
+}
+
 /* Light theme overrides */
 :root[data-theme="light"] .hljs {
   color: #2a2824;

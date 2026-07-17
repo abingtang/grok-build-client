@@ -76,6 +76,22 @@ export function normalizeLang(lang?: string | null): string {
   return ALIAS[raw] || raw;
 }
 
+/** Infer highlight language from a file path / name (e.g. foo.tsx → typescript). */
+export function langFromPath(filePath?: string | null): string {
+  if (!filePath) return "plaintext";
+  const base = filePath.split(/[/\\]/).pop() || filePath;
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0 || dot === base.length - 1) {
+    // extensionless common names
+    const lower = base.toLowerCase();
+    if (lower === "dockerfile" || lower.startsWith("dockerfile.")) return "bash";
+    if (lower === "makefile" || lower === "gnumakefile") return "bash";
+    return "plaintext";
+  }
+  const ext = base.slice(dot + 1).toLowerCase();
+  return normalizeLang(ext);
+}
+
 /** Escape HTML when highlighting fails / plaintext. */
 function escapeHtml(src: string): string {
   return src

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import type { ChatStatus } from "ai";
-import { CornerDownLeftIcon, SquareIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, SquareIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
   type FormEvent,
@@ -181,11 +181,12 @@ export type PromptInputSubmitProps = ComponentProps<typeof Button> & {
   onStop?: () => void;
 };
 
-/** Submit / stop button driven by AI SDK ChatStatus. */
+/**
+ * 发送 / 停止 — 使用 ui-composer-send 实色样式，避免无底/无图标的灰块。
+ */
 export function PromptInputSubmit({
   className,
-  variant = "default",
-  size = "icon-sm",
+  size = "icon",
   status = "ready",
   onStop,
   onClick,
@@ -194,22 +195,30 @@ export function PromptInputSubmit({
   ...props
 }: PromptInputSubmitProps) {
   const isGenerating = status === "submitted" || status === "streaming";
+  const isError = status === "error";
 
-  let icon = <CornerDownLeftIcon className="size-4" />;
-  if (status === "submitted") icon = <Spinner />;
-  else if (status === "streaming") icon = <SquareIcon className="size-3.5" />;
-  else if (status === "error") icon = <XIcon className="size-4" />;
+  let icon = <ArrowUpIcon className="size-4" strokeWidth={2.25} aria-hidden />;
+  if (status === "submitted") {
+    icon = <Spinner className="size-4 text-current" />;
+  } else if (status === "streaming") {
+    icon = <SquareIcon className="size-3.5 fill-current" aria-hidden />;
+  } else if (isError) {
+    icon = <XIcon className="size-4" aria-hidden />;
+  }
 
   return (
     <Button
       type={isGenerating && onStop ? "button" : "submit"}
-      variant={variant}
+      /* 不用 default variant 的 Tailwind bg，改走 plain CSS 实色 */
+      variant="ghost"
       size={size}
       disabled={disabled && !isGenerating}
       aria-label={isGenerating ? "停止" : "发送"}
       className={cn(
-        "size-8 shrink-0 rounded-lg",
-        isGenerating && "bg-destructive text-white hover:bg-destructive/90",
+        /* 方形：与工具条 + / ⌘K 同 28×28、圆角 8px（globals .ui-composer-send） */
+        "ui-composer-send size-7 shrink-0 rounded-lg p-0",
+        isGenerating && "ui-composer-send--stop",
+        isError && "ui-composer-send--error",
         className,
       )}
       onClick={(e) => {

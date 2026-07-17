@@ -39,6 +39,15 @@ import {
   type SettingsState,
 } from "./components/SettingsModal";
 import { SlashMenu } from "./components/SlashMenu";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { PlusIcon } from "@radix-ui/react-icons";
 import {
   buildGrokArgs,
   type EffortLevel,
@@ -2734,20 +2743,22 @@ export default function App() {
                     style={{ display: "none" }}
                     onChange={(e) => void handleFileInputChange(e)}
                   />
-                  <button
+                  <Button
                     type="button"
-                    className="btn btn-sm attach-btn"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="ui-composer-tool ui-composer-tool--icon"
                     disabled={!project || sessionLoading}
                     title={t("app.addFiles")}
+                    aria-label={t("app.addFiles")}
                     onClick={() => {
-                      // Prefer native dialog (paths preserved); fallback HTML input
                       void addFilesFromPicker().catch(() =>
                         fileInputRef.current?.click(),
                       );
                     }}
                   >
-                    +
-                  </button>
+                    <PlusIcon className="size-3.5" />
+                  </Button>
                   <button
                     type="button"
                     className={`chip plan-chip ${planMode ? "on" : ""}`}
@@ -2781,36 +2792,62 @@ export default function App() {
                       <span className="plan-chip-state">{t("app.planActive")}</span>
                     ) : null}
                   </button>
-                  <select
-                    className="inline-select"
+                  <Select
                     value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    title={t("common.model")}
-                    aria-label={t("common.model")}
+                    onValueChange={setModel}
+                    disabled={!models.length}
                   >
-                    {models.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="composer-control" title={t("app.effortTitle")}>
+                    <SelectTrigger
+                      className="w-auto max-w-[9.5rem]"
+                      title={t("common.model")}
+                      aria-label={t("common.model")}
+                    >
+                      <SelectValue placeholder={t("common.model")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {models.map((m) => (
+                        <SelectItem key={m} value={m}>
+                          {m}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div
+                    className="composer-control"
+                    title={t("app.effortTitle")}
+                  >
                     <span className="composer-control-label">
                       {t("settings.effort")}
                     </span>
-                    <select
-                      className="inline-select composer-effort-select"
+                    <Select
                       value={effort}
-                      onChange={(e) => setEffort(e.target.value as EffortLevel)}
-                      aria-label={t("app.effortTitle")}
+                      onValueChange={(v) => setEffort(v as EffortLevel)}
                     >
-                      <option value="low">{t("settings.effortLow")}</option>
-                      <option value="medium">{t("settings.effortMedium")}</option>
-                      <option value="high">{t("settings.effortHigh")}</option>
-                      <option value="xhigh">{t("settings.effortXhigh")}</option>
-                      <option value="max">{t("settings.effortMax")}</option>
-                    </select>
-                  </label>
+                      <SelectTrigger
+                        className="composer-effort-radix w-[5.5rem] max-w-[5.5rem] border-0 bg-transparent shadow-none"
+                        aria-label={t("app.effortTitle")}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">
+                          {t("settings.effortLow")}
+                        </SelectItem>
+                        <SelectItem value="medium">
+                          {t("settings.effortMedium")}
+                        </SelectItem>
+                        <SelectItem value="high">
+                          {t("settings.effortHigh")}
+                        </SelectItem>
+                        <SelectItem value="xhigh">
+                          {t("settings.effortXhigh")}
+                        </SelectItem>
+                        <SelectItem value="max">
+                          {t("settings.effortMax")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <label
                     className={`inline-check composer-approve${alwaysApprove ? " danger-on" : ""}`}
                     title={t("app.alwaysApproveRisk")}
@@ -2824,14 +2861,16 @@ export default function App() {
                   </label>
                 </div>
                 <div className="composer-actions">
-                  <button
+                  <Button
                     type="button"
-                    className="btn btn-sm"
+                    variant="ghost"
+                    size="sm"
+                    className="ui-composer-tool px-2 text-[11.5px] font-medium"
                     onClick={() => setPaletteOpen(true)}
                     title={t("app.commandPalette")}
                   >
                     ⌘K
-                  </button>
+                  </Button>
                   <PromptInputSubmit
                     status={toChatStatus(busy, streamPhase)}
                     disabled={

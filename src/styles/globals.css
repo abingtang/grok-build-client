@@ -233,18 +233,329 @@ button.ui-dialog-close:hover {
   color: var(--foreground, #ece9e2);
 }
 
+/*
+ * Composer 工具条统一方形控件（圆角 8px，高度 28px）
+ * 发送：实心方钮；工具 / 选择：描边方钮
+ */
+.composer-bar {
+  --composer-ctrl-h: 28px;
+  --composer-ctrl-r: 8px;
+}
+
+/*
+ * 发送 / 停止 — 实心方钮（与 + / ⌘K 同尺寸圆角）
+ */
+button.ui-composer-send {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: var(--composer-ctrl-h, 28px) !important;
+  height: var(--composer-ctrl-h, 28px) !important;
+  min-width: var(--composer-ctrl-h, 28px);
+  padding: 0 !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--composer-ctrl-r, 8px) !important;
+  background: var(--primary, #ece9e2) !important;
+  color: var(--primary-foreground, #131313) !important;
+  box-shadow: none;
+  opacity: 1;
+  transition:
+    filter 0.12s ease,
+    opacity 0.12s ease,
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+button.ui-composer-send:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+button.ui-composer-send:disabled {
+  opacity: 0.38 !important;
+  cursor: not-allowed;
+  filter: none;
+}
+
+button.ui-composer-send svg {
+  width: 14px;
+  height: 14px;
+  color: inherit !important;
+  stroke: currentColor;
+  flex-shrink: 0;
+}
+
+button.ui-composer-send--stop {
+  background: #c26c6c !important;
+  color: #ffffff !important;
+  border-color: color-mix(in srgb, #c26c6c 80%, #000) !important;
+}
+
+button.ui-composer-send--stop:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+button.ui-composer-send--error {
+  background: #c26c6c !important;
+  color: #ffffff !important;
+}
+
+/* Composer 工具条：Radix 紧凑 Select / 次要方钮 */
+.composer-bar .ui-select-trigger {
+  height: var(--composer-ctrl-h, 28px);
+  min-width: 0;
+  max-width: 9.5rem;
+  border-radius: var(--composer-ctrl-r, 8px);
+  font-size: 12px;
+  padding-left: 0.5rem;
+  padding-right: 0.45rem;
+  background: var(--bg-2, #181818);
+  border: 1px solid var(--border, #232323);
+  color: var(--text-1, #ece9e2);
+  box-shadow: none;
+}
+
+.composer-bar .ui-select-trigger:hover {
+  background: var(--bg-3, #1e1e1e);
+}
+
+.composer-bar button.ui-composer-tool {
+  height: var(--composer-ctrl-h, 28px);
+  min-width: var(--composer-ctrl-h, 28px);
+  padding: 0 8px;
+  border-radius: var(--composer-ctrl-r, 8px);
+  border: 1px solid var(--border, #232323);
+  background: var(--bg-2, #181818) !important;
+  color: var(--text-2, #999692) !important;
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.composer-bar button.ui-composer-tool:hover:not(:disabled) {
+  background: var(--bg-3, #1e1e1e) !important;
+  color: var(--text-1, #ece9e2) !important;
+  border-color: var(--border-strong, #3c3c3c);
+}
+
+.composer-bar button.ui-composer-tool:disabled {
+  opacity: 0.45;
+}
+
+.composer-bar button.ui-composer-tool.ui-composer-tool--icon {
+  width: var(--composer-ctrl-h, 28px);
+  padding: 0;
+}
+
+/* 思考深度：左侧标签 + 右侧 Radix Select 合成一组（同高同圆角） */
+.composer-bar .composer-control {
+  display: inline-flex;
+  align-items: center;
+  height: var(--composer-ctrl-h, 28px);
+  border: 1px solid var(--border, #232323);
+  border-radius: var(--composer-ctrl-r, 8px);
+  background: var(--bg-2, #181818);
+  overflow: hidden;
+}
+
+.composer-bar .composer-control .composer-control-label {
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 550;
+  color: var(--text-3, #6a6864);
+  border-right: 1px solid var(--border, #232323);
+  white-space: nowrap;
+  user-select: none;
+  line-height: var(--composer-ctrl-h, 28px);
+}
+
+.composer-bar .composer-control .ui-select-trigger.composer-effort-radix,
+.composer-bar .composer-control button.ui-select-trigger {
+  height: var(--composer-ctrl-h, 28px) !important;
+  max-width: 5.5rem;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Plan chip 与工具条同高、同圆角（方形体系） */
+.composer-bar .chip.plan-chip {
+  height: var(--composer-ctrl-h, 28px);
+  border-radius: var(--composer-ctrl-r, 8px);
+  padding: 0 9px 0 7px;
+  box-sizing: border-box;
+}
+
+/*
+ * 执行过程面板：浅底 + hover，与聊天正文区分
+ * （ProcessPanel：已处理 / 处理中 · 折叠展开）
+ */
+.chat-process {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border, #232323) 85%, transparent);
+  background: color-mix(in srgb, var(--muted, #1e1e1e) 42%, transparent);
+  overflow: hidden;
+}
+
+:root[data-theme="light"] .chat-process,
+.light .chat-process {
+  background: color-mix(in srgb, var(--muted, #e8e4d9) 55%, #ffffff);
+  border-color: color-mix(in srgb, var(--border, #e1dcce) 90%, transparent);
+}
+
+.chat-process[data-live="true"] {
+  border-color: color-mix(in srgb, var(--warn, #b5985a) 28%, var(--border, #232323));
+  background: color-mix(in srgb, var(--warn, #b5985a) 7%, var(--muted, #1e1e1e));
+}
+
+:root[data-theme="light"] .chat-process[data-live="true"],
+.light .chat-process[data-live="true"] {
+  background: color-mix(in srgb, var(--warn, #8a7240) 8%, #fbf9f3);
+}
+
+/* 外层标题行（已处理 Xs · …） */
+button.chat-process-trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted-foreground, #999692);
+  text-align: left;
+  font-size: 0.8125rem; /* 13px — 略小于正文 */
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+button.chat-process-trigger:hover {
+  background: color-mix(in srgb, var(--foreground, #ece9e2) 5.5%, transparent);
+  color: var(--foreground, #ece9e2);
+}
+
+button.chat-process-trigger[data-state="open"] {
+  color: var(--foreground, #ece9e2);
+  background: color-mix(in srgb, var(--foreground, #ece9e2) 3.5%, transparent);
+}
+
+:root[data-theme="light"] button.chat-process-trigger:hover,
+.light button.chat-process-trigger:hover {
+  background: color-mix(in srgb, var(--foreground, #1f1d19) 5%, transparent);
+}
+
+/* 展开后的过程明细区 */
+.chat-process-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem 0.65rem;
+  border-top: 1px solid color-mix(in srgb, var(--border, #232323) 80%, transparent);
+  background: color-mix(in srgb, var(--background, #0a0a0a) 35%, transparent);
+}
+
+:root[data-theme="light"] .chat-process-body,
+.light .chat-process-body {
+  background: color-mix(in srgb, #ffffff 55%, transparent);
+}
+
+/* 过程内可折叠行 / 工具行 */
+.chat-process-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-foreground, #999692);
+  text-align: left;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.chat-process-row:hover {
+  background: color-mix(in srgb, var(--foreground, #ece9e2) 6%, transparent);
+  color: var(--foreground, #ece9e2);
+}
+
+:root[data-theme="light"] .chat-process-row:hover,
+.light .chat-process-row:hover {
+  background: color-mix(in srgb, var(--foreground, #1f1d19) 5%, transparent);
+}
+
+/* 非按钮的静态行也复用浅底 hover（鼠标扫过时） */
+div.chat-process-row {
+  cursor: default;
+}
+
+div.chat-process-row:hover {
+  background: color-mix(in srgb, var(--foreground, #ece9e2) 4%, transparent);
+}
+
+/* 思考过程：与执行过程同结构，略偏 thought 色调以便区分 */
+.chat-process--thought {
+  border-color: color-mix(
+    in srgb,
+    var(--thought, #7d8fa3) 22%,
+    var(--border, #232323)
+  );
+  background: color-mix(
+    in srgb,
+    var(--thought, #7d8fa3) 9%,
+    var(--muted, #1e1e1e)
+  );
+}
+
+:root[data-theme="light"] .chat-process--thought,
+.light .chat-process--thought {
+  border-color: color-mix(in srgb, var(--thought, #7d8fa3) 28%, var(--border));
+  background: color-mix(in srgb, var(--thought, #7d8fa3) 10%, #fbf9f3);
+}
+
+.chat-process--thought[data-live="true"] {
+  border-color: color-mix(in srgb, var(--thought, #7d8fa3) 40%, var(--border));
+  background: color-mix(
+    in srgb,
+    var(--thought, #7d8fa3) 14%,
+    var(--muted, #1e1e1e)
+  );
+}
+
+.chat-process-thought-body {
+  font-size: 0.8125rem; /* 13px — 略小于正文 */
+  line-height: 1.55;
+  color: var(--muted-foreground, #999692);
+}
+
+:root[data-theme="light"] .chat-process-thought-body,
+.light .chat-process-thought-body {
+  color: var(--muted-foreground, #5c5953);
+}
+
 /* Streamdown / AI Elements message prose — flat single-shell cards */
 @layer components {
   .ai-msg-prose,
   [data-streamdown] {
-    font-size: var(--chat-body-font-size, 15.5px);
-    line-height: var(--chat-body-line-height, 1.65);
+    font-size: var(--chat-body-font-size, 4px);
+    line-height: var(--chat-body-line-height, 1.5);
   }
 
   /* 与 Streamdown 一致：用户气泡 / 纯文本消息 */
   .chat-msg-body {
-    font-size: var(--chat-body-font-size, 15.5px);
-    line-height: var(--chat-body-line-height, 1.65);
+    font-size: var(--chat-body-font-size, 4px);
+    line-height: var(--chat-body-line-height, 1.5);
   }
 
   /* Code block: single outer border; kill nested Streamdown layers */

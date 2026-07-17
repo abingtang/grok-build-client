@@ -41,7 +41,12 @@ export function Reasoning({
         setInternalOpen(v);
         onOpenChange?.(v);
       }}
-      className={cn("not-prose mb-0", className)}
+      data-live={isStreaming ? "true" : "false"}
+      className={cn(
+        /* 与执行过程面板同一套浅底 / hover（globals.css .chat-process*） */
+        "chat-process chat-process--thought not-prose mb-0 w-full",
+        className,
+      )}
       {...props}
     >
       {children}
@@ -68,11 +73,11 @@ export function ReasoningTrigger({
   const label =
     getThinkingMessage?.(!!isStreaming, duration) ??
     (isStreaming ? (
-      <Shimmer as="span" className="text-sm font-normal leading-snug" duration={1.6}>
+      <Shimmer as="span" className="font-medium" duration={1.6}>
         思考中…
       </Shimmer>
     ) : (
-      <span className="text-sm font-normal leading-snug text-muted-foreground">
+      <span className="min-w-0 flex-1 truncate font-medium">
         {title}
         {typeof duration === "number" && duration > 0
           ? ` · ${Math.round(duration)}s`
@@ -82,17 +87,19 @@ export function ReasoningTrigger({
 
   return (
     <CollapsibleTrigger
-      className={cn(
-        // 与执行过程内「读取文件 / 已运行」行统一：text-sm + 略放宽行距
-        "flex w-full items-center gap-2.5 rounded-md py-1.5 text-left text-sm font-normal leading-snug text-muted-foreground transition-colors hover:text-foreground",
-        className,
-      )}
+      className={cn("chat-process-trigger group/thought", className)}
       {...props}
     >
       {children ?? (
         <>
           {label}
-          <ChevronDownIcon className="ml-auto size-3.5 shrink-0 opacity-60 transition-transform [[data-state=open]_&]:rotate-180" />
+          <ChevronDownIcon
+            className={cn(
+              "ml-auto size-3.5 shrink-0 opacity-60 transition-transform",
+              /* 与执行过程一致：收起时指向右 */
+              "group-data-[state=closed]/thought:-rotate-90",
+            )}
+          />
         </>
       )}
     </CollapsibleTrigger>
@@ -111,7 +118,7 @@ export function ReasoningContent({
   return (
     <CollapsibleContent
       className={cn(
-        "mt-1 max-h-60 overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-sm text-muted-foreground",
+        "chat-process-body chat-process-thought-body max-h-60 overflow-auto whitespace-pre-wrap text-muted-foreground",
         className,
       )}
       {...props}

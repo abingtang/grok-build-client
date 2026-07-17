@@ -75,8 +75,8 @@
   --chat-col-max: 56rem; /* 896px — 比原 48rem 更易在宽屏上看出伸缩 */
   --chat-col-pad-x: 1.25rem;
   /* 聊天正文（用户气泡 + 助手 Markdown） */
-  --chat-body-font-size: 15.5px;
-  --chat-body-line-height: 1.65;
+  --chat-body-font-size: 14px;
+  --chat-body-line-height: 1.5;
   --chat-code-font-size: 13px;
 
   color-scheme: dark;

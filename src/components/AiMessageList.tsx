@@ -95,9 +95,44 @@ export type FilePreviewState = {
   path: string;
   content: string;
   displayPath?: string;
+  /** 编辑类：与 newText 一起走 diff 高亮 */
+  oldText?: string;
+  newText?: string;
+  /** code = 语法高亮全文；diff = old/new 行级对比 */
+  mode?: "code" | "diff";
 };
 
 const PREVIEW_CONTENT_MAX = 120_000;
+
+/** 从编辑工具消息构造侧栏预览（优先 oldText + newText diff）。 */
+function buildEditPreviewState(
+  m: ChatMessage,
+  pathOverride?: string,
+  displayPathOverride?: string,
+): FilePreviewState {
+  const info = extractEditInfo(m);
+  const path = pathOverride || info.path;
+  const oldText = (info.oldText || "").slice(0, PREVIEW_CONTENT_MAX);
+  let newText = (info.newText || "").slice(0, PREVIEW_CONTENT_MAX);
+  if (!oldText && !newText) {
+    const fallback = extractMessagePreviewContent(m);
+    newText = fallback;
+  }
+  const looksUnified =
+    !oldText &&
+    !!newText &&
+    /^(diff --git |@@ |index [0-9a-f])|^(--- |\+\+\+ )/m.test(newText);
+  const mode: "code" | "diff" =
+    oldText || newText || looksUnified ? "diff" : "code";
+  return {
+    path,
+    displayPath: displayPathOverride || info.displayPath,
+    content: newText || extractMessagePreviewContent(m),
+    oldText: mode === "diff" ? oldText : undefined,
+    newText: mode === "diff" ? newText : undefined,
+    mode,
+  };
+}
 
 interface Props {
   messages: ChatMessage[];
@@ -151,6 +186,8 @@ type EditFileInfo = {
   removed: number;
   live: boolean;
   message: ChatMessage;
+  oldText: string;
+  newText: string;
 };
 
 function shortDisplayPath(path: string): string {
@@ -211,6 +248,8 @@ function extractEditInfo(m: ChatMessage): EditFileInfo {
     removed,
     live: isToolLive(m),
     message: m,
+    oldText,
+    newText,
   };
 }
 
@@ -365,13 +404,16 @@ function EditedFilesSummary({
 
   const openPreview = async (f: EditFileInfo) => {
     if (!onPreview) return;
-    let content = extractMessagePreviewContent(f.message);
-    if (!content && f.path) content = await loadPreviewFromDisk(f.path);
-    await onPreview({
-      path: f.path,
-      displayPath: f.displayPath,
-      content,
-    });
+    let state = buildEditPreviewState(f.message, f.path, f.displayPath);
+    if (
+      state.mode !== "diff" &&
+      !state.content &&
+      f.path
+    ) {
+      const disk = await loadPreviewFromDisk(f.path);
+      state = { ...state, content: disk, mode: "code" };
+    }
+    await onPreview(state);
   };
 
   return (
@@ -591,13 +633,31 @@ function FileOpsList({
 
   const openPreview = async (row: (typeof rows)[number]) => {
     if (!onPreview || !row.clickable || !row.message) return;
-    const path = row.path || extractToolPath(row.message) || row.message.toolName || "";
+    const path =
+      row.path ||
+      extractToolPath(row.message) ||
+      row.message.toolName ||
+      "";
+    if (row.kind === "edit") {
+      let state = buildEditPreviewState(
+        row.message,
+        path,
+        shortDisplayPath(path),
+      );
+      if (state.mode !== "diff" && !state.content && path) {
+        const disk = await loadPreviewFromDisk(path);
+        state = { ...state, content: disk, mode: "code" };
+      }
+      await onPreview(state);
+      return;
+    }
     let content = extractMessagePreviewContent(row.message);
     if (!content && path) content = await loadPreviewFromDisk(path);
     await onPreview({
       path,
       displayPath: shortDisplayPath(path),
       content,
+      mode: "code",
     });
   };
 
@@ -619,7 +679,7 @@ function FileOpsList({
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="w-full">
-      <CollapsibleTrigger className="group/ops flex w-full items-center gap-2 rounded-md py-1 text-left text-[12.5px] text-muted-foreground transition-colors hover:text-foreground">
+      <CollapsibleTrigger className={cn(PROCESS_DETAIL_ROW, "group/ops")}>
         <WrenchIcon className="size-3.5 shrink-0 opacity-70" />
         <span className="min-w-0 flex-1 truncate font-medium">
           {summaryLabel}
@@ -636,9 +696,7 @@ function FileOpsList({
           const inner = (
             <>
               {iconFor(row.kind)}
-              <span className="min-w-0 flex-1 text-[12.5px] text-muted-foreground">
-                {row.label}
-              </span>
+              <span className="min-w-0 flex-1 truncate">{row.label}</span>
             </>
           );
           if (row.clickable) {
@@ -646,7 +704,7 @@ function FileOpsList({
               <button
                 key={row.id}
                 type="button"
-                className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-muted/40 hover:text-foreground"
+                className={PROCESS_DETAIL_ROW}
                 onClick={() => void openPreview(row)}
                 title={row.path}
               >
@@ -655,10 +713,7 @@ function FileOpsList({
             );
           }
           return (
-            <div
-              key={row.id}
-              className="flex items-center gap-2 px-1 py-1 text-muted-foreground"
-            >
+            <div key={row.id} className={PROCESS_DETAIL_ROW}>
               {inner}
             </div>
           );
@@ -805,15 +860,10 @@ function ThoughtItem({ m }: { m: ChatMessage }) {
     <Reasoning
       isStreaming={!!m.streaming}
       defaultOpen={!!m.streaming}
-      className="mb-0 w-full"
+      className="w-full"
     >
-      <ReasoningTrigger
-        isStreaming={!!m.streaming}
-        className="py-1.5 text-sm font-normal leading-snug"
-      />
-      <ReasoningContent className="mt-1.5 text-sm leading-relaxed">
-        {m.content || "…"}
-      </ReasoningContent>
+      <ReasoningTrigger isStreaming={!!m.streaming} />
+      <ReasoningContent>{m.content || "…"}</ReasoningContent>
     </Reasoning>
   );
 }
@@ -871,9 +921,9 @@ function ProcessItem({
 
 /* ─── 过程时间线：按连续同类操作分段折叠 ─── */
 
-/** 过程细节行：统一字号，略放宽行距避免过挤 */
+/** 过程细节行：浅底面板内行 + hover（样式见 globals .chat-process-row） */
 const PROCESS_DETAIL_ROW =
-  "flex w-full items-center gap-2.5 rounded-md py-1.5 text-left text-sm font-normal leading-snug text-muted-foreground transition-colors hover:text-foreground";
+  "chat-process-row font-normal";
 const PROCESS_DETAIL_ICON = "size-3.5 shrink-0 opacity-70";
 const PROCESS_DETAIL_CHEVRON =
   "ml-auto size-3.5 shrink-0 opacity-60 transition-transform";
@@ -941,7 +991,7 @@ function buildTimelineRuns(
 function InterimNoteItem({ m }: { m: ChatMessage }) {
   if (!m.content?.trim()) return null;
   return (
-    <div className="whitespace-pre-wrap py-1.5 text-sm font-normal leading-snug text-muted-foreground">
+    <div className="chat-process-row whitespace-pre-wrap !items-start">
       {m.content}
     </div>
   );
@@ -1015,25 +1065,26 @@ function FileOpLine({
     return (
       <button
         type="button"
-        className={cn(PROCESS_DETAIL_ROW, "hover:bg-muted/40")}
+        className={PROCESS_DETAIL_ROW}
         title={info.path}
         onClick={() => {
           if (!onPreview) return;
           void (async () => {
-            let content = extractMessagePreviewContent(m);
-            if (!content && info.path) {
-              content = await loadPreviewFromDisk(info.path);
+            let state = buildEditPreviewState(
+              m,
+              info.path,
+              info.displayPath,
+            );
+            if (state.mode !== "diff" && !state.content && info.path) {
+              const disk = await loadPreviewFromDisk(info.path);
+              state = { ...state, content: disk, mode: "code" };
             }
-            await onPreview({
-              path: info.path,
-              displayPath: info.displayPath,
-              content,
-            });
+            await onPreview(state);
           })();
         }}
       >
         <PencilIcon className={PROCESS_DETAIL_ICON} />
-        <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5 text-sm font-normal leading-none">
+        <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5 font-normal leading-none">
           <span>{rt("chat.edited")}</span>
           <span className="font-mono text-foreground/85 underline decoration-border underline-offset-2">
             {info.displayPath}
@@ -1048,7 +1099,7 @@ function FileOpLine({
     return (
       <div className={PROCESS_DETAIL_ROW}>
         <WrenchIcon className={PROCESS_DETAIL_ICON} />
-        <span className="text-sm font-normal leading-none">
+        <span className="font-normal leading-none">
           {rt("chat.readSkill", { name: skillDisplayName(m) })}
         </span>
       </div>
@@ -1061,7 +1112,7 @@ function FileOpLine({
     return (
       <button
         type="button"
-        className={cn(PROCESS_DETAIL_ROW, "hover:bg-muted/40")}
+        className={PROCESS_DETAIL_ROW}
         title={path}
         onClick={() => {
           if (!onPreview) return;
@@ -1073,7 +1124,7 @@ function FileOpLine({
         }}
       >
         <BookOpenIcon className={PROCESS_DETAIL_ICON} />
-        <span className="text-sm font-normal leading-none">
+        <span className="font-normal leading-none">
           {rt("chat.readDone")}{" "}
           <span className="font-mono text-foreground/85 underline decoration-border underline-offset-2">
             {display}
@@ -1086,7 +1137,7 @@ function FileOpLine({
   return (
     <div className={PROCESS_DETAIL_ROW}>
       <WrenchIcon className={PROCESS_DETAIL_ICON} />
-      <span className="text-sm font-normal leading-none">
+      <span className="font-normal leading-none">
         {m.toolName || String(m.meta?.toolKind || rt("chat.tool"))}
       </span>
     </div>
@@ -1116,14 +1167,14 @@ function FileOpsRunGroup({
     <Collapsible open={open} onOpenChange={setOpen} className="w-full">
       <CollapsibleTrigger className={PROCESS_DETAIL_ROW}>
         <WrenchIcon className={PROCESS_DETAIL_ICON} />
-        <span className="min-w-0 flex-1 truncate text-sm font-normal leading-none">
+        <span className="min-w-0 flex-1 truncate font-normal leading-none">
           {label}
         </span>
         <ChevronDownIcon
           className={cn(PROCESS_DETAIL_CHEVRON, !open && "-rotate-90")}
         />
       </CollapsibleTrigger>
-      <CollapsibleContent className="mt-1 space-y-1 pl-5">
+      <CollapsibleContent className="mt-0.5 space-y-0.5 pl-4">
         {items.map((m) => (
           <FileOpLine key={m.id} m={m} onPreview={onPreview} />
         ))}
@@ -1151,25 +1202,24 @@ function ShellCommandItem({
     <Collapsible open={open} onOpenChange={setOpen} className="w-full">
       <CollapsibleTrigger className={PROCESS_DETAIL_ROW}>
         <TerminalIcon className={PROCESS_DETAIL_ICON} />
-        <span className="min-w-0 flex-1 truncate text-sm font-normal leading-none">
-          {rt("chat.ranCommand")} <span className="font-mono text-foreground/85">{short}</span>
+        <span className="min-w-0 flex-1 truncate font-normal leading-none">
+          {rt("chat.ranCommand")}{" "}
+          <span className="font-mono text-foreground/85">{short}</span>
         </span>
         <ChevronDownIcon
           className={cn(PROCESS_DETAIL_CHEVRON, !open && "-rotate-90")}
         />
       </CollapsibleTrigger>
-      <CollapsibleContent className="mt-1">
-        <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2.5 text-sm">
-          <div className="mb-1.5 text-sm font-normal text-muted-foreground">
-            Shell
-          </div>
-          <pre className="m-0 whitespace-pre-wrap break-all font-mono text-sm leading-relaxed text-foreground/90">
+      <CollapsibleContent className="mt-1 px-1">
+        <div className="rounded-lg border border-border/70 bg-background/40 px-3 py-2.5 text-[12.5px]">
+          <div className="mb-1.5 font-normal text-muted-foreground">Shell</div>
+          <pre className="m-0 whitespace-pre-wrap break-all font-mono leading-relaxed text-foreground/90">
             <span className="text-muted-foreground">$ </span>
             {cmd}
           </pre>
-          <div className="mt-2 text-sm text-muted-foreground">
+          <div className="mt-2 text-muted-foreground">
             {output ? (
-              <pre className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-sm">
+              <pre className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono">
                 {output.slice(0, 8000)}
               </pre>
             ) : (
@@ -1178,7 +1228,7 @@ function ShellCommandItem({
           </div>
           <div
             className={cn(
-              "mt-2 flex items-center justify-end gap-1 text-sm",
+              "mt-2 flex items-center justify-end gap-1",
               ok ? "text-emerald-500" : "text-destructive",
             )}
           >
@@ -1209,14 +1259,14 @@ function ShellRunGroup({
     <Collapsible open={open} onOpenChange={setOpen} className="w-full">
       <CollapsibleTrigger className={PROCESS_DETAIL_ROW}>
         <TerminalIcon className={PROCESS_DETAIL_ICON} />
-        <span className="min-w-0 flex-1 truncate text-sm font-normal leading-none">
+        <span className="min-w-0 flex-1 truncate font-normal leading-none">
           {rt("chat.ranMultiple")}
         </span>
         <ChevronDownIcon
           className={cn(PROCESS_DETAIL_CHEVRON, !open && "-rotate-90")}
         />
       </CollapsibleTrigger>
-      <CollapsibleContent className="mt-1 space-y-1.5 pl-1">
+      <CollapsibleContent className="mt-0.5 space-y-0.5 pl-4">
         {items.map((m) => (
           <ShellCommandItem key={m.id} m={m} />
         ))}
@@ -1294,8 +1344,9 @@ function ProcessTimelineBody({
                 return (
                   <div key={m.id} className={PROCESS_DETAIL_ROW}>
                     <WrenchIcon className={PROCESS_DETAIL_ICON} />
-                    <span className="text-sm font-normal leading-none">
-                      {rt("chat.subagent")}{m.toolName ? ` · ${m.toolName}` : ""}
+                    <span className="font-normal leading-none">
+                      {rt("chat.subagent")}
+                      {m.toolName ? ` · ${m.toolName}` : ""}
                       {m.status ? ` · ${m.status}` : ""}
                     </span>
                   </div>
@@ -1304,7 +1355,7 @@ function ProcessTimelineBody({
               return (
                 <div key={m.id} className={PROCESS_DETAIL_ROW}>
                   <WrenchIcon className={PROCESS_DETAIL_ICON} />
-                  <span className="text-sm font-normal leading-none">
+                  <span className="font-normal leading-none">
                     {m.toolName || String(m.meta?.toolKind || rt("chat.tool"))}
                   </span>
                 </div>
@@ -1370,19 +1421,19 @@ function ProcessPanel({
       : "";
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="w-full">
-      <CollapsibleTrigger
-        className={cn(
-          "group/process flex w-full items-center gap-2 rounded-md py-1 text-left text-sm transition-colors",
-          "text-muted-foreground hover:text-foreground",
-        )}
-      >
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className="chat-process"
+      data-live={turn.live ? "true" : "false"}
+    >
+      <CollapsibleTrigger className="chat-process-trigger group/process">
         {turn.live ? (
-          <Shimmer as="span" className="text-sm font-medium" duration={1.5}>
+          <Shimmer as="span" className="font-medium" duration={1.5}>
             {label}
           </Shimmer>
         ) : (
-          <span className="font-medium">
+          <span className="min-w-0 flex-1 truncate font-medium">
             {label}
             {summary}
           </span>
@@ -1394,7 +1445,7 @@ function ProcessPanel({
           )}
         />
       </CollapsibleTrigger>
-      <CollapsibleContent className="mt-2 space-y-2 border-l border-border/50 py-1 pl-3.5">
+      <CollapsibleContent className="chat-process-body">
         <ProcessTimelineBody
           turn={turn}
           interimNotes={notes}
@@ -1675,6 +1726,9 @@ export function AiMessageList({
         path={preview?.path ?? null}
         title={preview?.displayPath}
         content={preview?.content ?? ""}
+        oldText={preview?.oldText}
+        newText={preview?.newText}
+        mode={preview?.mode}
         onClose={() => setPreview(null)}
       />
     </div>
