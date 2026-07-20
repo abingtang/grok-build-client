@@ -80,3 +80,46 @@ export async function grokInspect(cwd: string): Promise<string> {
   const r = await runGrok(["inspect"], cwd, 60_000);
   return r.stdout || r.stderr || "";
 }
+
+/** Structured inspect (`grok inspect --json`). */
+export async function grokInspectJson(
+  cwd: string,
+): Promise<{ ok: boolean; data: unknown; raw: string }> {
+  const r = await runGrok(["inspect", "--json"], cwd, 60_000);
+  const raw = (r.stdout || r.stderr || "").trim();
+  try {
+    return { ok: true, data: JSON.parse(raw), raw };
+  } catch {
+    return { ok: false, data: null, raw };
+  }
+}
+
+/** Export session via official CLI. */
+export async function grokExportSession(
+  sessionId: string,
+  outputPath?: string | null,
+): Promise<{ ok: boolean; output: string }> {
+  const args = ["export", sessionId];
+  if (outputPath) args.push(outputPath);
+  const r = await runGrok(args, undefined, 120_000);
+  const output = (r.stdout || r.stderr || "").trim();
+  return { ok: r.code === 0, output };
+}
+
+/** List worktrees via `grok worktree list --json` (falls back to plain). */
+export async function grokWorktreeList(
+  repoPath?: string | null,
+): Promise<string> {
+  const args = ["worktree", "list", "--json"];
+  if (repoPath) args.push("--repo", repoPath);
+  const r = await runGrok(args, repoPath || undefined, 30_000);
+  const out = (r.stdout || r.stderr || "").trim();
+  if (out) return out;
+  const plain = await runGrok(
+    repoPath
+      ? ["worktree", "list", "--repo", repoPath]
+      : ["worktree", "list"],
+    repoPath || undefined,
+  );
+  return (plain.stdout || plain.stderr || "").trim() || "(no worktrees)";
+}

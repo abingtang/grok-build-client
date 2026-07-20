@@ -1,7 +1,7 @@
 {
   "name": "grok-build-desktop",
   "version": "0.1.0",
-  "description": "Mac desktop client for Grok Build — project switcher, sessions, and full slash-command support via ACP",
+  "description": "Desktop client for Grok Build on macOS and Windows — project switcher, sessions, and full slash-command support via ACP",
   "main": "dist-electron/main.js",
   "author": "local",
   "license": "MIT",
@@ -11,10 +11,12 @@
     "build": "tsc -p tsconfig.node.json && vite build && tsc -p tsconfig.electron.json",
     "preview": "vite preview",
     "start": "electron .",
-    "electron:dev": "bash scripts/electron-dev.sh",
-    "electron:dev:raw": "concurrently -k \"vite --host 127.0.0.1 --port 5175\" \"wait-on http://127.0.0.1:5175 && tsc -p tsconfig.electron.json && ELECTRON_DEV=1 VITE_DEV_SERVER_URL=http://127.0.0.1:5175 electron .\"",
+    "electron:dev": "node scripts/electron-dev.mjs",
+    "electron:dev:raw": "node scripts/electron-dev.mjs",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit",
-    "pack:mac": "npm run build && electron-builder --mac dir"
+    "test:windows": "tsc -p tsconfig.electron.json && node --test electron/env.test.cjs",
+    "pack:mac": "npm run build && electron-builder --mac dmg --arm64",
+    "pack:win": "npm run build && electron-builder --win nsis --x64"
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.33",
@@ -91,12 +93,20 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
+      "electron/assets/image/icon.png",
       "package.json"
     ],
     "mac": {
+      "icon": "electron/assets/image/icon.png",
       "category": "public.app-category.developer-tools",
       "target": [
-        "dir"
+        "dmg"
+      ]
+    },
+    "win": {
+      "icon": "electron/assets/image/icon.png",
+      "target": [
+        "nsis"
       ]
     }
   }

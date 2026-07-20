@@ -33,8 +33,11 @@ import {
 import { getGrokHome, grokSpawnEnv, resolveGrokBinary } from "./env";
 import { HeadlessRunner } from "./services/headless-run";
 import {
+  grokExportSession,
   grokInspect,
+  grokInspectJson,
   grokVersion,
+  grokWorktreeList,
   listGrokModels,
 } from "./services/grok-cli";
 import { listInvocableSkills } from "./services/skills-scan";
@@ -46,9 +49,19 @@ import {
 import {
   listHooks,
   listMcpServers,
-  listPlugins,
   listWorktrees,
+  mcpDoctor,
 } from "./services/mcp-cli";
+import {
+  disablePlugin,
+  enablePlugin,
+  installPlugin,
+  listPluginsDetailed,
+  pluginDetails,
+  uninstallPlugin,
+  updatePlugins,
+} from "./services/plugins-cli";
+import { createProjectWorktree } from "./services/worktree-ops";
 
 let mainWindow: BrowserWindow | null = null;
 const acp = new AcpClient();
@@ -68,9 +81,14 @@ function createWindow(): void {
     height: 920,
     minWidth: 1100,
     minHeight: 700,
-    titleBarStyle: "hiddenInset",
-    // Vertically center in 52px unified titlebar
-    trafficLightPosition: { x: 16, y: 18 },
+    icon: path.join(__dirname, "../electron/assets/image/icon.png"),
+    ...(process.platform === "darwin"
+      ? {
+          titleBarStyle: "hiddenInset" as const,
+          // Vertically center in 52px unified titlebar
+          trafficLightPosition: { x: 16, y: 18 },
+        }
+      : {}),
     backgroundColor: "#0b0d10",
     show: false,
     webPreferences: {
@@ -404,7 +422,41 @@ function registerIpc(): void {
   );
 
   ipcMain.handle("mcp:list", async () => listMcpServers());
-  ipcMain.handle("plugins:list", async () => listPlugins());
+  ipcMain.handle("mcp:doctor", async (_e, name?: string | null) =>
+    mcpDoctor(name),
+  );
+  ipcMain.handle("plugins:list", async () => listPluginsDetailed());
+  ipcMain.handle(
+    "plugins:install",
+    async (_e, source: string, trust?: boolean) =>
+      installPlugin(source, trust !== false),
+  );
+  ipcMain.handle(
+    "plugins:uninstall",
+    async (_e, name: string, keepData?: boolean) =>
+      uninstallPlugin(name, { keepData: !!keepData }),
+  );
+  ipcMain.handle("plugins:enable", async (_e, name: string) =>
+    enablePlugin(name),
+  );
+  ipcMain.handle("plugins:disable", async (_e, name: string) =>
+    disablePlugin(name),
+  );
+  ipcMain.handle("plugins:details", async (_e, name: string) =>
+    pluginDetails(name),
+  );
+  ipcMain.handle("plugins:update", async (_e, name?: string | null) =>
+    updatePlugins(name),
+  );
+  ipcMain.handle(
+    "worktree:create",
+    async (
+      _e,
+      projectPath: string,
+      label?: string | null,
+      gitRef?: string | null,
+    ) => createProjectWorktree(projectPath, label, gitRef),
+  );
   ipcMain.handle("hooks:list", async (_e, projectPath?: string | null) =>
     listHooks(projectPath),
   );
@@ -413,6 +465,9 @@ function registerIpc(): void {
   );
   ipcMain.handle("git:worktrees", async (_e, projectPath: string) =>
     listWorktrees(projectPath),
+  );
+  ipcMain.handle("grok:worktrees", async (_e, projectPath?: string | null) =>
+    grokWorktreeList(projectPath),
   );
 
   ipcMain.handle(
@@ -682,6 +737,17 @@ function registerIpc(): void {
     return grokInspect(cwd);
   });
 
+  ipcMain.handle("grok:inspectJson", async (_e, cwd: string) => {
+    return grokInspectJson(cwd);
+  });
+
+  ipcMain.handle(
+    "grok:exportSession",
+    async (_e, sessionId: string, outputPath?: string | null) => {
+      return grokExportSession(sessionId, outputPath);
+    },
+  );
+
   // Headless streaming-json runs (JaydenCJ-compatible primary path)
   ipcMain.handle(
     "headless:run",
@@ -794,6 +860,105 @@ async function runGrokSubcommand(args: string[]): Promise<{
   });
 }
 
+function buildDocsPanelBody(query: string): string {
+  const guideDir = path.join(getGrokHome(), "docs", "user-guide");
+  const lines: string[] = [
+    "Grok Build 用户指南",
+    `目录: ${guideDir}`,
+    "",
+  ];
+  if (!fs.existsSync(guideDir)) {
+    lines.push(
+      "未找到本地文档目录。可执行：",
+      "  · /docs web  — 打开在线文档",
+      "  · 确认 ~/.grok/docs/user-guide 存在",
+    );
+    return lines.join("\n");
+  }
+  let files: string[] = [];
+  try {
+    files = fs
+      .readdirSync(guideDir)
+      .filter((f) => f.endsWith(".md"))
+      .sort();
+  } catch (e) {
+    return `读取文档失败：${e instanceof Error ? e.message : String(e)}`;
+  }
+  lines.push("可用章节：");
+  for (const f of files) {
+    lines.push(`  · ${f.replace(/\.md$/, "")}`);
+  }
+  lines.push("");
+  const q = query.trim().toLowerCase();
+  let pick =
+    files.find((f) => f.toLowerCase().includes(q) && q.length > 0) ||
+    files.find((f) => f.startsWith("01-")) ||
+    files[0];
+  if (pick) {
+    try {
+      const raw = fs.readFileSync(path.join(guideDir, pick), "utf8");
+      lines.push(`── ${pick} ──`);
+      lines.push(raw.slice(0, 6000));
+      if (raw.length > 6000) lines.push("\n…(已截断，完整内容见本地文件)");
+    } catch {
+      lines.push(`无法读取 ${pick}`);
+    }
+  }
+  lines.push("", "提示：/docs web 打开在线文档站。");
+  return lines.join("\n");
+}
+
+function buildAgentsPanelBody(): string {
+  const dir = path.join(getGrokHome(), "agents");
+  const lines = ["自定义 Agents（~/.grok/agents）", ""];
+  if (!fs.existsSync(dir)) {
+    lines.push("目录不存在。可在 ~/.grok/agents 放置 agent 定义。");
+    return lines.join("\n");
+  }
+  try {
+    const files = fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".md") || f.endsWith(".toml"))
+      .sort();
+    if (!files.length) {
+      lines.push("（空）");
+    } else {
+      for (const f of files) {
+        lines.push(`· ${f.replace(/\.(md|toml)$/, "")}`);
+      }
+    }
+  } catch (e) {
+    lines.push(e instanceof Error ? e.message : String(e));
+  }
+  lines.push("", "TUI 中用 /config-agents 管理；桌面端当前为只读列表。");
+  return lines.join("\n");
+}
+
+function buildPersonasPanelBody(): string {
+  const candidates = [
+    path.join(getGrokHome(), "personas"),
+    path.join(getGrokHome(), "agents", "personas"),
+  ];
+  const lines = ["Personas", ""];
+  let found = false;
+  for (const dir of candidates) {
+    if (!fs.existsSync(dir)) continue;
+    found = true;
+    lines.push(`目录: ${dir}`);
+    try {
+      const files = fs.readdirSync(dir).sort();
+      if (!files.length) lines.push("（空）");
+      else for (const f of files) lines.push(`· ${f}`);
+    } catch (e) {
+      lines.push(e instanceof Error ? e.message : String(e));
+    }
+  }
+  if (!found) {
+    lines.push("未找到 personas 目录（~/.grok/personas）。");
+  }
+  return lines.join("\n");
+}
+
 async function executeSlash(
   input: string,
   context: {
@@ -808,6 +973,7 @@ async function executeSlash(
   action?: string;
   message?: string;
   openPanel?: string;
+  openTab?: string;
   promptText?: string;
   data?: unknown;
 }> {
@@ -841,11 +1007,15 @@ async function executeSlash(
       return { handled: true, action: "new-session" };
 
     case "resume":
-      return { handled: true, action: "open-panel", openPanel: "sessions" };
-
     case "dashboard":
     case "sessions":
-      return { handled: true, action: "open-panel", openPanel: "sessions" };
+    case "history":
+      // 会话选择：打开命令面板搜索（比空 Panel 有用）
+      return {
+        handled: true,
+        action: "open-palette",
+        message: "在命令面板中搜索并打开会话。",
+      };
 
     case "home":
     case "welcome":
@@ -856,44 +1026,14 @@ async function executeSlash(
       app.quit();
       return { handled: true, action: "quit" };
 
-    case "session-info": {
-      const status = acp.getStatus();
+    case "session-info":
+    case "context":
       return {
         handled: true,
-        action: "system-message",
-        message: [
-          `Session ID: ${status.sessionId || context.sessionId || "(none)"}`,
-          `CWD: ${status.cwd || context.projectPath || "(none)"}`,
-          `Model: ${status.model || context.model || "(default)"}`,
-          `Connected: ${status.connected}`,
-          `Grok home: ${getGrokHome()}`,
-          `Grok bin: ${resolveGrokBinary()}`,
-        ].join("\n"),
+        action: "open-inspector",
+        openTab: "context",
+        message: "已打开会话详情 · 上下文",
       };
-    }
-
-    case "context": {
-      const status = acp.getStatus();
-      // Try extension; fall back to system message.
-      try {
-        const result = await acp.extension("x.ai/session/context", {
-          sessionId: status.sessionId || context.sessionId,
-        });
-        return {
-          handled: true,
-          action: "system-message",
-          message: typeof result === "string" ? result : JSON.stringify(result, null, 2),
-          data: result,
-        };
-      } catch {
-        return {
-          handled: true,
-          action: "system-message",
-          message:
-            "上下文详情扩展不可用。可用 /session-info 查看基础信息，或在 TUI 中使用 /context。",
-        };
-      }
-    }
 
     case "compact": {
       try {
@@ -919,14 +1059,45 @@ async function executeSlash(
 
     case "fork": {
       try {
+        const sourceSessionId =
+          context.sessionId || acp.getStatus().sessionId || "";
+        const sourceCwd = context.projectPath || acp.getStatus().cwd || "";
+        if (!sourceSessionId || !sourceCwd) {
+          return {
+            handled: true,
+            action: "system-message",
+            message: "Fork 需要当前会话与项目路径。",
+          };
+        }
+        // Parse optional --worktree / --no-worktree from args
+        const rawArgs = (parsed.args || "").trim();
+        const wantWt = /\b--worktree\b/.test(rawArgs);
+        const noWt = /\b--no-worktree\b/.test(rawArgs);
+        const directive = rawArgs
+          .replace(/--worktree(?:=\S+)?/g, "")
+          .replace(/--no-worktree/g, "")
+          .trim();
+        let newCwd = sourceCwd;
+        if (wantWt && !noWt) {
+          const wt = await createProjectWorktree(
+            sourceCwd,
+            directive.slice(0, 40) || null,
+          );
+          if (wt.ok && wt.path) newCwd = wt.path;
+        }
         const result = await acp.extension("x.ai/session/fork", {
-          sessionId: context.sessionId || acp.getStatus().sessionId,
-          directive: parsed.args || undefined,
+          sourceSessionId,
+          sourceCwd,
+          newCwd,
+          sessionKind: wantWt && !noWt ? "worktree" : "fork",
+          sourceWorkspaceDir:
+            wantWt && !noWt ? sourceCwd : undefined,
+          newModelId: context.model || undefined,
         });
         return {
           handled: true,
-          action: "system-message",
-          message: "已请求 fork 会话。",
+          action: "fork-session",
+          message: "已 fork 会话。",
           data: result,
         };
       } catch {
@@ -939,27 +1110,23 @@ async function executeSlash(
       }
     }
 
-    case "rewind": {
-      try {
-        const result = await acp.extension("x.ai/rewind/list", {
-          sessionId: context.sessionId || acp.getStatus().sessionId,
-        });
-        return {
-          handled: true,
-          action: "open-panel",
-          openPanel: "rewind",
-          data: result,
-          message: "已加载 rewind 点列表。",
-        };
-      } catch {
-        return {
-          handled: true,
-          action: "prompt",
-          promptText: "/rewind",
-          message: "ACP rewind 扩展不可用，已作为提示发送。",
-        };
-      }
-    }
+    case "rewind":
+      return {
+        handled: true,
+        action: "open-inspector",
+        openTab: "rewind",
+        message: "已打开会话详情 · Rewind",
+      };
+
+    case "view-plan":
+    case "show-plan":
+    case "plan-view":
+      return {
+        handled: true,
+        action: "open-inspector",
+        openTab: "plan",
+        message: "已打开会话详情 · Plan",
+      };
 
     case "copy": {
       const text = context.lastAssistantText || "";
@@ -978,14 +1145,32 @@ async function executeSlash(
       };
     }
 
-    case "rename":
-    case "title":
-      return {
-        handled: true,
-        action: "rename-session",
-        message: parsed.args,
-        data: { title: parsed.args },
-      };
+    case "rename": {
+      const sessionId = context.sessionId || acp.getStatus().sessionId;
+      const cwd = context.projectPath || acp.getStatus().cwd;
+      if (!sessionId || !cwd) {
+        return { handled: true, action: "error", message: "重命名需要当前会话。" };
+      }
+      try {
+        await acp.extension("x.ai/session/rename", {
+          sessionId,
+          title: parsed.args,
+          cwd,
+        });
+        return {
+          handled: true,
+          action: "rename-session",
+          message: `会话已重命名为：${parsed.args}`,
+          data: { sessionId, title: parsed.args },
+        };
+      } catch (error) {
+        return {
+          handled: true,
+          action: "error",
+          message: `重命名失败：${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    }
 
     case "model":
     case "m":
@@ -1016,21 +1201,8 @@ async function executeSlash(
     case "ml":
       return { handled: true, action: "toggle-multiline" };
 
-    case "history":
-      return { handled: true, action: "open-panel", openPanel: "history" };
-
     case "compact-mode":
       return { handled: true, action: "toggle-compact-mode" };
-
-    case "vim-mode":
-      return { handled: true, action: "toggle-vim-mode" };
-
-    case "minimal":
-      return { handled: true, action: "set-layout", data: { layout: "minimal" } };
-
-    case "fullscreen":
-    case "full":
-      return { handled: true, action: "set-layout", data: { layout: "fullscreen" } };
 
     case "theme":
     case "t":
@@ -1062,26 +1234,41 @@ async function executeSlash(
 
     case "config-agents":
     case "agents":
-      return { handled: true, action: "open-panel", openPanel: "agents" };
+      return {
+        handled: true,
+        action: "open-panel",
+        openPanel: "agents",
+        message: buildAgentsPanelBody(),
+        data: buildAgentsPanelBody(),
+      };
 
     case "personas":
-      return { handled: true, action: "open-panel", openPanel: "personas" };
+      return {
+        handled: true,
+        action: "open-panel",
+        openPanel: "personas",
+        message: buildPersonasPanelBody(),
+        data: buildPersonasPanelBody(),
+      };
 
     case "docs":
     case "howto":
     case "guides": {
-      if (parsed.args === "web" || !parsed.args) {
-        if (parsed.args === "web") {
-          await shell.openExternal("https://docs.x.ai/build/overview");
-          return { handled: true, action: "system-message", message: "已在浏览器打开 Grok Build 文档。" };
-        }
-        return { handled: true, action: "open-panel", openPanel: "docs" };
+      if (parsed.args === "web") {
+        await shell.openExternal("https://docs.x.ai/build/overview");
+        return {
+          handled: true,
+          action: "system-message",
+          message: "已在浏览器打开 Grok Build 文档。",
+        };
       }
-      await shell.openExternal("https://docs.x.ai/build/overview");
+      const docsBody = buildDocsPanelBody(parsed.args || "");
       return {
         handled: true,
-        action: "system-message",
-        message: `已打开文档（查询：${parsed.args}）`,
+        action: "open-panel",
+        openPanel: "docs",
+        message: docsBody,
+        data: docsBody,
       };
     }
 
@@ -1089,13 +1276,21 @@ async function executeSlash(
     case "changelog": {
       const notesPath = path.join(getGrokHome(), "CHANGELOG.md");
       if (fs.existsSync(notesPath)) {
-        const text = fs.readFileSync(notesPath, "utf8").slice(0, 8000);
-        return { handled: true, action: "system-message", message: text };
+        const text = fs.readFileSync(notesPath, "utf8").slice(0, 12000);
+        return {
+          handled: true,
+          action: "open-panel",
+          openPanel: "docs",
+          message: text,
+          data: text,
+        };
       }
       return {
         handled: true,
-        action: "system-message",
+        action: "open-panel",
+        openPanel: "docs",
         message: "未找到 ~/.grok/CHANGELOG.md",
+        data: "未找到 ~/.grok/CHANGELOG.md",
       };
     }
 
@@ -1154,6 +1349,11 @@ async function executeSlash(
 }
 
 app.whenReady().then(() => {
+  if (process.platform === "darwin") {
+    app.dock?.setIcon(
+      path.join(__dirname, "../electron/assets/image/icon.png"),
+    );
+  }
   wireAcpEvents();
   registerIpc();
   createWindow();

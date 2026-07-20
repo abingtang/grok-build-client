@@ -32,6 +32,14 @@ import {
   GlobalConfigPage,
   type GlobalConfigKind,
 } from "./components/GlobalConfigPage";
+import {
+  PluginsPage,
+  type PluginsToolbar,
+} from "./components/PluginsPage";
+import {
+  NewSessionOptions,
+  type NewSessionOptionsValue,
+} from "./components/NewSessionOptions";
 import { PermissionModal } from "./components/PermissionModal";
 import { ProjectTree } from "./components/ProjectTree";
 import {
@@ -171,6 +179,13 @@ function loadLS(key: string, fallback: string): string {
   }
 }
 
+function loadThemeLight(): boolean {
+  const saved = loadLS(LS.theme, "");
+  if (saved === "1") return true;
+  if (saved === "0") return false;
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ?? false;
+}
+
 export default function App() {
   const { t, locale, setLocale } = useI18n();
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
@@ -247,9 +262,7 @@ export default function App() {
     Array<{ name: string; path: string; isDir: boolean }>
   >([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const [themeLight, setThemeLight] = useState(
-    () => loadLS(LS.theme, "0") === "1",
-  );
+  const [themeLight, setThemeLight] = useState(loadThemeLight);
 
   const [model, setModel] = useState<string>(
     () => loadLS(LS.model, "grok-4.5"),
@@ -267,10 +280,31 @@ export default function App() {
   const [permissionMode, setPermissionMode] =
     useState<PermissionMode>("default");
   const [bestOfN, setBestOfN] = useState(1);
+  const [maxTurns, setMaxTurns] = useState(48);
+  const [noPlan, setNoPlan] = useState(false);
+  const [sandbox, setSandbox] = useState("");
   const [webSearch, setWebSearch] = useState(true);
   const [subagents, setSubagents] = useState(true);
   const [memory, setMemory] = useState(false);
   const [selfCheck, setSelfCheck] = useState(false);
+  const [pluginsPageOpen, setPluginsPageOpen] = useState(false);
+  const [pluginsToolbar, setPluginsToolbar] = useState<PluginsToolbar | null>(
+    null,
+  );
+  /** Show new-session options strip (worktree / fork) */
+  const [showNewSessionOpts, setShowNewSessionOpts] = useState(false);
+  const [newSessionOpts, setNewSessionOpts] =
+    useState<NewSessionOptionsValue>({
+      useWorktree: false,
+      worktreeLabel: "",
+      forkFromCurrent: false,
+    });
+  /** Parent session id when drafting a fork-from-current session */
+  const forkParentRef = useRef<{
+    sessionId: string;
+    cwd: string;
+  } | null>(null);
+  const [canForkNewSession, setCanForkNewSession] = useState(false);
 
   const [appInfo, setAppInfo] = useState<{
     version: string;
@@ -862,10 +896,14 @@ export default function App() {
     setMessages([]);
     setAttachments([]);
     draftNewSessionRef.current = false;
+    setShowNewSessionOpts(false);
+    setCanForkNewSession(false);
+    setPluginsPageOpen(false);
     streamingIdRef.current = null;
     thoughtIdRef.current = null;
     // 仅清除与「当前会话无关」的 seed；同会话 fork seed 由下方 snapshot 恢复
     forkContextSeedRef.current = null;
+    forkParentRef.current = null;
 
     try {
       // Switch project context without reordering the tree
@@ -986,9 +1024,17 @@ export default function App() {
       permissionMode,
       bestOfN,
       experimentalMemory: memory,
+      noMemory: !memory,
       webSearchEnabled: webSearch,
       subagentsEnabled: subagents,
       selfCheck,
+      maxTurns,
+      noPlan,
+      sandbox: sandbox || null,
+      worktree: newSessionOpts.useWorktree
+        ? newSessionOpts.worktreeLabel.trim() || true
+        : null,
+      forkSession: newSessionOpts.forkFromCurrent,
       cwd: project?.path || "",
       continueConversation:
         continueRef.current ||
@@ -1296,13 +1342,18 @@ export default function App() {
   ): void {
     const s = target || session;
     if (!s) {
-      openGlobalPage("mcp");
+      setMessages((m) => [
+        ...m,
+        systemMessage(t("msg.needSessionForInspector")),
+      ]);
       return;
     }
     setGlobalPage(null);
+    setPluginsPageOpen(false);
+    // 仅在切换到另一会话时加载；合成摘要且已是当前 id 则跳过
     if (owner && (!project || project.path !== owner.path)) {
       void loadSession(s, owner);
-    } else if (!session || session.id !== s.id) {
+    } else if (session && session.id !== s.id) {
       const proj =
         owner ||
         project ||
@@ -1311,6 +1362,8 @@ export default function App() {
           name: s.cwd.split("/").pop() || s.cwd,
         } as ProjectInfo);
       void loadSession(s, proj);
+    } else if (!session) {
+      setSession(s);
     }
     setInspectorScope("session");
     setInspectorTab(tab);
@@ -1332,21 +1385,17 @@ export default function App() {
 
   async function runSlashCommand(cmd: string): Promise<void> {
     if (!project) return;
-    try {
-      const sid = await ensureAcpSession(project.path, false);
-      setBusy(true);
-      setRunLabel(t("status.runCmd", { cmd }));
-      await window.grokDesktop.acp.prompt(cmd, sid);
-      finalizeAcpTurn();
-    } catch (e) {
-      setMessages((m) => [
-        ...m,
-        systemMessage(
-          t("msg.cmdFailed", { cmd, msg: e instanceof Error ? e.message : String(e) }),
-        ),
-      ]);
-      setBusy(false);
-    }
+    const result = (await window.grokDesktop.slash.execute(cmd, {
+      projectPath: project.path,
+      sessionId:
+        session?.id ||
+        acpSessionIdRef.current ||
+        headlessSessionIdRef.current,
+      lastAssistantText,
+      alwaysApprove,
+      model,
+    })) as Parameters<typeof applySlashResult>[0];
+    await applySlashResult(result);
   }
 
   async function applyRewind(promptIndex: number): Promise<void> {
@@ -1687,14 +1736,125 @@ export default function App() {
     if (!wantNew && acpSessionIdRef.current) {
       return acpSessionIdRef.current;
     }
-    const result = (await window.grokDesktop.acp.newSession(
-      cwd,
-    )) as { sessionId: string };
+
+    // Apply draft options once (worktree / fork-session)
+    const opts = newSessionOpts;
+    let sessionCwd = cwd;
+    const parent = forkParentRef.current;
+
+    if (opts.useWorktree) {
+      try {
+        const wt = await window.grokDesktop.extensions.worktreeCreate(
+          cwd,
+          opts.worktreeLabel || null,
+        );
+        if (wt.ok && wt.path) {
+          sessionCwd = wt.path;
+          setMessages((m) => [
+            ...m,
+            systemMessage(t("newSession.worktreeCreated", { path: wt.path! })),
+          ]);
+        } else if (wt.output) {
+          setMessages((m) => [
+            ...m,
+            systemMessage(
+              t("newSession.worktreeFailed", { msg: wt.output }),
+            ),
+          ]);
+        }
+      } catch (e) {
+        setMessages((m) => [
+          ...m,
+          systemMessage(
+            t("newSession.worktreeFailed", {
+              msg: e instanceof Error ? e.message : String(e),
+            }),
+          ),
+        ]);
+      }
+    }
+
+    if (opts.forkFromCurrent && parent?.sessionId) {
+      try {
+        const result = (await window.grokDesktop.acp.extension(
+          "x.ai/session/fork",
+          {
+            sourceSessionId: parent.sessionId,
+            sourceCwd: parent.cwd,
+            newCwd: sessionCwd,
+            sessionKind: opts.useWorktree ? "worktree" : "fork",
+            sourceWorkspaceDir: opts.useWorktree ? parent.cwd : undefined,
+            newModelId: model || undefined,
+          },
+        )) as { newSessionId?: string; new_session_id?: string };
+        const sid =
+          result?.newSessionId ||
+          result?.new_session_id ||
+          (result as { newSessionId?: string })?.newSessionId;
+        if (sid) {
+          try {
+            await window.grokDesktop.acp.loadSession(sid, sessionCwd);
+          } catch {
+            /* load may fail if agent expects different shape; still track id */
+          }
+          draftNewSessionRef.current = false;
+          forkParentRef.current = null;
+          setShowNewSessionOpts(false);
+          setCanForkNewSession(false);
+          setNewSessionOpts({
+            useWorktree: false,
+            worktreeLabel: "",
+            forkFromCurrent: false,
+          });
+          acpSessionIdRef.current = sid;
+          headlessSessionIdRef.current = sid;
+          continueRef.current = true;
+          setStatus((s) => ({
+            ...s,
+            sessionId: sid,
+            connected: true,
+            cwd: sessionCwd,
+          }));
+          setMessages((m) => [
+            ...m,
+            systemMessage(t("newSession.forked", { sid })),
+          ]);
+          return sid;
+        }
+      } catch (e) {
+        setMessages((m) => [
+          ...m,
+          systemMessage(
+            t("newSession.forkFailed", {
+              msg: e instanceof Error ? e.message : String(e),
+            }),
+          ),
+        ]);
+        // fall through to plain newSession
+      }
+    }
+
+    const result = (await window.grokDesktop.acp.newSession(sessionCwd, {
+      // pass-through hints when agent supports them
+    })) as { sessionId: string };
     draftNewSessionRef.current = false;
+    forkParentRef.current = null;
+    setShowNewSessionOpts(false);
+    setCanForkNewSession(false);
+    setNewSessionOpts({
+      useWorktree: false,
+      worktreeLabel: "",
+      forkFromCurrent: false,
+    });
     acpSessionIdRef.current = result.sessionId;
     headlessSessionIdRef.current = result.sessionId;
     continueRef.current = true;
-    setStatus((s) => ({ ...s, sessionId: result.sessionId, connected: true }));
+    setStatus((s) => ({
+      ...s,
+      sessionId: result.sessionId,
+      connected: true,
+      cwd: sessionCwd,
+    }));
     return result.sessionId;
   }
 
@@ -1976,8 +2136,21 @@ export default function App() {
    * 真正的会话在用户首次发送消息时由 ensureAcpSession 创建。
    */
   async function createNewChat(owner?: ProjectInfo | null): Promise<void> {
+    // Capture parent for optional fork-from-current before clearing
+    const parentSid =
+      session?.id || acpSessionIdRef.current || headlessSessionIdRef.current;
+    const parentCwd = project?.path || null;
+    if (parentSid && parentCwd) {
+      forkParentRef.current = { sessionId: parentSid, cwd: parentCwd };
+      setCanForkNewSession(true);
+    } else {
+      forkParentRef.current = null;
+      setCanForkNewSession(false);
+    }
+
     // 先标记草稿，避免 acp status 把旧 sessionId 写回
     draftNewSessionRef.current = true;
+    setShowNewSessionOpts(true);
     headlessSessionIdRef.current = null;
     acpSessionIdRef.current = null;
     continueRef.current = false;
@@ -1991,6 +2164,13 @@ export default function App() {
     setRunLabel(null);
     setStreamPhase("idle");
     streamBuffer.reset();
+    setNewSessionOpts({
+      useWorktree: false,
+      worktreeLabel: "",
+      forkFromCurrent: false,
+    });
+    setPluginsPageOpen(false);
+    setGlobalPage(null);
 
     const target = owner || project;
     if (owner && (!project || project.path !== owner.path)) {
@@ -2019,24 +2199,7 @@ export default function App() {
     if (text.startsWith("/") && !pending.length) {
       setInput("");
       setShowSlash(false);
-      const result = (await window.grokDesktop.slash.execute(text, {
-        projectPath: project?.path || null,
-        sessionId:
-          session?.id ||
-          acpSessionIdRef.current ||
-          headlessSessionIdRef.current,
-        lastAssistantText,
-        alwaysApprove,
-        model,
-      })) as {
-        handled: boolean;
-        action?: string;
-        message?: string;
-        openPanel?: string;
-        promptText?: string;
-        data?: unknown;
-      };
-      await applySlashResult(result);
+      await runSlashCommand(text);
       return;
     }
 
@@ -2051,10 +2214,17 @@ export default function App() {
     action?: string;
     message?: string;
     openPanel?: string;
+    openTab?: string;
     promptText?: string;
     data?: unknown;
   }): Promise<void> {
-    if (result.message && result.action !== "prompt") {
+    // 打开面板/检查器时不再往聊天里灌冗长 body；其它动作仍提示
+    const skipChatToast =
+      result.action === "open-panel" ||
+      result.action === "open-inspector" ||
+      result.action === "open-palette" ||
+      result.action === "prompt";
+    if (result.message && !skipChatToast) {
       setMessages((m) => [...m, systemMessage(result.message!)]);
     }
     switch (result.action) {
@@ -2065,20 +2235,103 @@ export default function App() {
         setSession(null);
         setMessages([systemMessage(t("msg.backHome"))]);
         break;
+      case "open-palette":
+        setPaletteOpen(true);
+        break;
+      case "open-inspector": {
+        const tab = (result.openTab || "context") as
+          | "context"
+          | "plan"
+          | "rewind"
+          | "subagents";
+        const sid =
+          session?.id ||
+          acpSessionIdRef.current ||
+          headlessSessionIdRef.current;
+        if (!sid || !project) {
+          setMessages((m) => [
+            ...m,
+            systemMessage(t("msg.needSessionForInspector")),
+          ]);
+          break;
+        }
+        // 草稿/仅有 id 时构造最小 SessionSummary
+        const target =
+          session ||
+          ({
+            id: sid,
+            cwd: project.path,
+            title: sid.slice(0, 8),
+            updatedAt: new Date().toISOString(),
+          } as SessionSummary);
+        openSessionInspector(target, tab, project);
+        break;
+      }
       case "open-panel":
         if (result.openPanel === "settings") {
           setSettingsOpen(true);
+        } else if (
+          result.openPanel === "mcps" ||
+          result.openPanel === "mcp"
+        ) {
+          openGlobalPage("mcp");
+        } else if (result.openPanel === "skills") {
+          openGlobalPage("skills");
+        } else if (result.openPanel === "hooks") {
+          openGlobalPage("hooks");
+        } else if (
+          result.openPanel === "plugins" ||
+          result.openPanel === "marketplace"
+        ) {
+          setGlobalPage(null);
+          setPluginsPageOpen(true);
         } else {
-          setPanel((result.openPanel || "settings") as Exclude<PanelId, null>);
-          setPanelBody(
-            result.data
-              ? typeof result.data === "string"
-                ? result.data
-                : JSON.stringify(result.data, null, 2)
-              : result.message || "",
-          );
+          const body =
+            (typeof result.data === "string"
+              ? result.data
+              : result.data != null
+                ? JSON.stringify(result.data, null, 2)
+                : "") ||
+            result.message ||
+            t("panel.emptyBody");
+          setPanel((result.openPanel || "docs") as Exclude<PanelId, null>);
+          setPanelBody(body);
         }
         break;
+      case "fork-session": {
+        const data = result.data as
+          | {
+              newSessionId?: string;
+              new_session_id?: string;
+              newCwd?: string;
+              new_cwd?: string;
+            }
+          | undefined;
+        const sid = data?.newSessionId || data?.new_session_id;
+        const newCwd = data?.newCwd || data?.new_cwd || project?.path;
+        if (sid && newCwd) {
+          try {
+            await window.grokDesktop.acp.loadSession(sid, newCwd);
+          } catch {
+            /* ignore */
+          }
+          acpSessionIdRef.current = sid;
+          headlessSessionIdRef.current = sid;
+          continueRef.current = true;
+          draftNewSessionRef.current = false;
+          setStatus((s) => ({
+            ...s,
+            sessionId: sid,
+            connected: true,
+            cwd: newCwd,
+          }));
+          setMessages((m) => [
+            ...m,
+            systemMessage(t("newSession.forked", { sid })),
+          ]);
+        }
+        break;
+      }
       case "prompt":
         if (result.promptText) await runAgent(result.promptText);
         break;
@@ -2100,6 +2353,32 @@ export default function App() {
         ]);
         break;
       }
+      case "rename-session": {
+        const { sessionId, title } = (result.data || {}) as {
+          sessionId?: string;
+          title?: string;
+        };
+        if (!sessionId || !title) break;
+        setSession((current) =>
+          current?.id === sessionId ? { ...current, title } : current,
+        );
+        setSessionsByProject((current) =>
+          Object.fromEntries(
+            Object.entries(current).map(([cwd, sessions]) => [
+              cwd,
+              sessions.map((item) =>
+                item.id === sessionId ? { ...item, title } : item,
+              ),
+            ]),
+          ),
+        );
+        setSessionSearchResults((current) =>
+          current?.map((item) =>
+            item.id === sessionId ? { ...item, title } : item,
+          ) || current,
+        );
+        break;
+      }
       case "toggle-theme":
         setThemeLight((v) => !v);
         break;
@@ -2112,6 +2391,21 @@ export default function App() {
       case "toggle-compact-mode":
         setCompactMode((v) => !v);
         break;
+      case "toggle-always-approve":
+        setAlwaysApprove((v) => !v);
+        break;
+      case "toggle-auto-permission":
+        setPermissionMode((v) => (v === "auto" ? "default" : "auto"));
+        break;
+      case "set-effort": {
+        const next = String(
+          (result.data as { effort?: string } | undefined)?.effort || "",
+        ) as EffortLevel;
+        if (["low", "medium", "high", "xhigh", "max"].includes(next)) {
+          setEffort(next);
+        }
+        break;
+      }
       case "set-model": {
         const next = String(
           (result.data as { model?: string } | undefined)?.model || "",
@@ -2303,6 +2597,9 @@ export default function App() {
     subagents,
     memory,
     selfCheck,
+    maxTurns,
+    noPlan,
+    sandbox,
     themeLight,
     locale,
   };
@@ -2329,6 +2626,15 @@ export default function App() {
           hint: "⌘,",
           group: "command",
           run: () => setSettingsOpen(true),
+        },
+        {
+          id: "plugins",
+          label: t("plugins.title"),
+          group: "command",
+          run: () => {
+            setGlobalPage(null);
+            setPluginsPageOpen(true);
+          },
         },
         {
           id: "inspector",
@@ -2441,6 +2747,40 @@ export default function App() {
           : t("app.placeholderBusy")
         : t("app.placeholderReady");
 
+  /** Global feature pages (MCP / Skills / Hooks / Plugins) — no project/session chrome. */
+  const isGlobalFeaturePage = !!(globalPage || pluginsPageOpen);
+  const featurePageTitle = pluginsPageOpen
+    ? t("plugins.title")
+    : globalPage === "mcp"
+      ? t("tree.navMcpTitle")
+      : globalPage === "skills"
+        ? t("tree.navSkillsTitle")
+        : globalPage === "hooks"
+          ? t("tree.navHooksTitle")
+          : null;
+
+  /** Resolve relative chat images (e.g. images/1.jpg) against project + session dirs. */
+  const mediaBaseDirs = useMemo(() => {
+    const dirs: string[] = [];
+    const cwd = project?.path || session?.cwd || null;
+    if (cwd) dirs.push(cwd);
+    const sid =
+      session?.id || status.sessionId || acpSessionIdRef.current || null;
+    const home = appInfo?.grokHome;
+    if (home && cwd && sid) {
+      dirs.push(
+        `${home}/sessions/${encodeURIComponent(cwd)}/${sid}`,
+      );
+    }
+    return dirs;
+  }, [
+    project?.path,
+    session?.cwd,
+    session?.id,
+    status.sessionId,
+    appInfo?.grokHome,
+  ]);
+
   return (
     <div className={themeLight ? "app layout-codex light" : "app layout-codex dark"}>
       <header className="titlebar titlebar-codex">
@@ -2452,85 +2792,157 @@ export default function App() {
         </div>
 
         <div className="titlebar-chat">
-          <div className="title-block">
-            <h2>
-              {session?.title ||
-                (project
-                  ? draftNewSessionRef.current
-                    ? t("app.newChat")
-                    : project.name
-                  : t("app.selectProject"))}
-            </h2>
-            <p title={project?.path || ""}>
-              {shortPath(project?.path)}
-              {alwaysApprove ? t("app.alwaysApproveSuffix") : ""}
-              {" · "}
-              {model}
-            </p>
-          </div>
+          {isGlobalFeaturePage ? (
+            <div className="title-block">
+              <h2>{featurePageTitle}</h2>
+              <p>{t("inspector.scopeGlobal")}</p>
+            </div>
+          ) : (
+            <div className="title-block">
+              <h2>
+                {session?.title ||
+                  (project
+                    ? draftNewSessionRef.current
+                      ? t("app.newChat")
+                      : project.name
+                    : t("app.selectProject"))}
+              </h2>
+              <p title={project?.path || ""}>
+                {shortPath(project?.path)}
+                {alwaysApprove ? t("app.alwaysApproveSuffix") : ""}
+                {" · "}
+                {model}
+              </p>
+            </div>
+          )}
           <div className="titlebar-actions titlebar-no-drag">
-            {planMode ? (
-              <span
-                className="status-pill plan-mode-pill"
-                title={t("app.planOnTitle")}
-              >
-                <span className="plan-mode-pill-icon" aria-hidden>
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M3.5 4h9M3.5 8h9M3.5 12h6"
-                      stroke="currentColor"
-                      strokeWidth="1.4"
-                      strokeLinecap="round"
-                    />
-                    <circle cx="12.5" cy="12" r="1.6" fill="currentColor" />
-                  </svg>
+            {isGlobalFeaturePage ? (
+              <>
+                {pluginsPageOpen ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={
+                        !pluginsToolbar ||
+                        pluginsToolbar.loading ||
+                        !!pluginsToolbar.busy
+                      }
+                      onClick={() => pluginsToolbar?.refresh()}
+                    >
+                      {t("common.refresh")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={!pluginsToolbar || !!pluginsToolbar.busy}
+                      onClick={() => pluginsToolbar?.updateAll()}
+                    >
+                      {pluginsToolbar?.busy === "update-all"
+                        ? t("plugins.updating")
+                        : t("plugins.updateAll")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => setPluginsPageOpen(false)}
+                    >
+                      {t("common.close")}
+                    </button>
+                  </>
+                ) : globalPage ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => {
+                        if (globalPage === "mcp") void refreshMcp();
+                        else void refreshSkillsAndHooks();
+                      }}
+                    >
+                      {t("common.refresh")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => setGlobalPage(null)}
+                    >
+                      {t("common.close")}
+                    </button>
+                  </>
+                ) : null}
+              </>
+            ) : (
+              <>
+                {planMode ? (
+                  <span
+                    className="status-pill plan-mode-pill"
+                    title={t("app.planOnTitle")}
+                  >
+                    <span className="plan-mode-pill-icon" aria-hidden>
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                        <path
+                          d="M3.5 4h9M3.5 8h9M3.5 12h6"
+                          stroke="currentColor"
+                          strokeWidth="1.4"
+                          strokeLinecap="round"
+                        />
+                        <circle cx="12.5" cy="12" r="1.6" fill="currentColor" />
+                      </svg>
+                    </span>
+                    {t("common.plan")}
+                  </span>
+                ) : null}
+                <span
+                  className={`status-pill ${connectionStatus.tone === "warn" ? "warn" : connectionStatus.tone}`}
+                  title={
+                    permission
+                      ? t("app.waitApproveTitle", { title: permission.title })
+                      : status.connected
+                        ? t("app.acpConnectedTitle", {
+                            session: status.sessionId || "no session",
+                            bin: appInfo?.grokBin || "",
+                          })
+                        : grokReady
+                          ? t("app.grokCliReadyTitle", {
+                              bin: appInfo?.grokBin || "",
+                            })
+                          : appInfo?.grokBin || t("app.noGrokCli")
+                  }
+                >
+                  <span className="dot" />
+                  {connectionStatus.text}
                 </span>
-                {t("common.plan")}
-              </span>
-            ) : null}
-            <span
-              className={`status-pill ${connectionStatus.tone === "warn" ? "warn" : connectionStatus.tone}`}
-              title={
-                permission
-                  ? t("app.waitApproveTitle", { title: permission.title })
-                  : status.connected
-                    ? t("app.acpConnectedTitle", { session: status.sessionId || "no session", bin: appInfo?.grokBin || "" })
-                    : grokReady
-                      ? t("app.grokCliReadyTitle", { bin: appInfo?.grokBin || "" })
-                      : appInfo?.grokBin || t("app.noGrokCli")
-              }
-            >
-              <span className="dot" />
-              {connectionStatus.text}
-            </span>
-            {queue.length > 0 ? (
-              <span
-                className="status-pill pending"
-                title={t("app.queueTitle")}
-              >
-                {t("app.queue", { n: queue.length })}
-              </span>
-            ) : null}
-            {busy || permission ? (
-              <button
-                type="button"
-                className="btn btn-sm btn-stop"
-                onClick={() => void cancelTurn()}
-                title={t("app.stopTitle")}
-              >
-                {t("common.stop")}
-              </button>
-            ) : null}
-            {session ? (
-              <button
-                type="button"
-                className="btn btn-sm titlebar-session-detail"
-                title={t("tree.openSessionInspectorTitle")}
-                onClick={() => openSessionInspector(session, "context")}
-              >
-                {t("tree.openSessionInspector")}
-              </button>
-            ) : null}
+                {queue.length > 0 ? (
+                  <span
+                    className="status-pill pending"
+                    title={t("app.queueTitle")}
+                  >
+                    {t("app.queue", { n: queue.length })}
+                  </span>
+                ) : null}
+                {busy || permission ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-stop"
+                    onClick={() => void cancelTurn()}
+                    title={t("app.stopTitle")}
+                  >
+                    {t("common.stop")}
+                  </button>
+                ) : null}
+                {session ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm titlebar-session-detail"
+                    title={t("tree.openSessionInspectorTitle")}
+                    onClick={() => openSessionInspector(session, "context")}
+                  >
+                    {t("tree.openSessionInspector")}
+                  </button>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -2567,6 +2979,10 @@ export default function App() {
           onRemoveProject={(p) => void removeProjectFromList(p)}
           onRevealInFinder={(p) => void revealProjectInFinder(p)}
           onOpenGlobalPage={(tab) => openGlobalPage(tab)}
+          onOpenPlugins={() => {
+            setGlobalPage(null);
+            setPluginsPageOpen(true);
+          }}
           onOpenSearch={() => setPaletteOpen(true)}
           onOpenSessionInspector={(proj, s, tab) =>
             openSessionInspector(s, tab || "context", proj)
@@ -2577,15 +2993,14 @@ export default function App() {
         />
 
         <section className="chat">
-          {globalPage ? (
+          {pluginsPageOpen ? (
+            <PluginsPage onToolbar={setPluginsToolbar} />
+          ) : globalPage ? (
             <GlobalConfigPage
               kind={globalPage}
               mcpServers={mcpServers}
               skills={skillsList}
               hooks={hooksList}
-              onRefreshMcp={() => void refreshMcp()}
-              onRefreshSkillsHooks={() => void refreshSkillsAndHooks()}
-              onClose={() => setGlobalPage(null)}
             />
           ) : sessionLoading ? (
             <ChatSessionSkeleton />
@@ -2596,6 +3011,7 @@ export default function App() {
             onForkMessage={(id) => void forkFromMessage(id)}
             forkDisabled={busy || sessionLoading || !project}
             onStop={() => void cancelTurn()}
+            mediaBaseDirs={mediaBaseDirs}
             streamStatus={
               busy
                 ? { phase: streamPhase, elapsedMs: streamElapsed }
@@ -2604,7 +3020,7 @@ export default function App() {
           />
           )}
 
-          {!globalPage ? (
+          {!globalPage && !pluginsPageOpen ? (
           <div className="composer-wrap">
             <div className="chat-col">
             {showSlash ? (
@@ -2613,6 +3029,14 @@ export default function App() {
                 activeIndex={slashIndex}
                 onHover={setSlashIndex}
                 onSelect={selectSlash}
+              />
+            ) : null}
+
+            {showNewSessionOpts && project ? (
+              <NewSessionOptions
+                value={newSessionOpts}
+                onChange={setNewSessionOpts}
+                canFork={canForkNewSession}
               />
             ) : null}
 
@@ -2711,7 +3135,18 @@ export default function App() {
                       !input.includes(" ")
                     ) {
                       e.preventDefault();
-                      selectSlash(slashItems[slashIndex]);
+                      const selected = slashItems[slashIndex];
+                      const typed = input.slice(1).toLowerCase();
+                      const exact =
+                        selected.name === typed ||
+                        selected.aliases?.some(
+                          (alias) => alias.toLowerCase() === typed,
+                        );
+                      if (exact && !selected.argsRequired) {
+                        void handleSubmit();
+                      } else {
+                        selectSlash(selected);
+                      }
                       return;
                     }
                     if (e.key === "Escape") {
@@ -2936,6 +3371,9 @@ export default function App() {
           setSubagents(next.subagents);
           setMemory(next.memory);
           setSelfCheck(next.selfCheck);
+          setMaxTurns(next.maxTurns);
+          setNoPlan(next.noPlan);
+          setSandbox(next.sandbox);
           setThemeLight(next.themeLight);
           if (next.locale !== locale) setLocale(next.locale);
         }}

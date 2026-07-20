@@ -173,25 +173,6 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     kind: "client",
   },
   {
-    name: "vim-mode",
-    description: "切换 vim 风格滚动快捷键",
-    category: "model",
-    kind: "client",
-  },
-  {
-    name: "minimal",
-    description: "切换到 minimal 渲染模式（桌面端映射为简洁布局）",
-    category: "model",
-    kind: "client",
-  },
-  {
-    name: "fullscreen",
-    aliases: ["full"],
-    description: "切换到全屏聊天布局",
-    category: "model",
-    kind: "client",
-  },
-  {
     name: "plan",
     description: "进入计划模式",
     argumentHint: "[description]",

@@ -165,6 +165,16 @@ interface GrokDesktopApi {
     version: () => Promise<unknown>;
     models: () => Promise<unknown>;
     inspect: (cwd: string) => Promise<unknown>;
+    inspectJson: (cwd: string) => Promise<{
+      ok: boolean;
+      data: unknown;
+      raw: string;
+    }>;
+    exportSession: (
+      sessionId: string,
+      outputPath?: string | null,
+    ) => Promise<{ ok: boolean; output: string }>;
+    worktrees: (projectPath?: string | null) => Promise<string>;
   };
   sessionMeta: {
     context: (sessionId: string, cwd?: string) => Promise<unknown>;
@@ -177,10 +187,46 @@ interface GrokDesktopApi {
   };
   extensions: {
     mcpList: () => Promise<unknown>;
-    pluginsList: () => Promise<unknown>;
+    mcpDoctor: (name?: string | null) => Promise<string>;
+    pluginsList: () => Promise<{
+      plugins: Array<{
+        name: string;
+        version?: string;
+        enabled?: boolean;
+        source?: string;
+        path?: string;
+        description?: string;
+      }>;
+      raw: string;
+    }>;
+    pluginsInstall: (
+      source: string,
+      trust?: boolean,
+    ) => Promise<{ ok: boolean; output: string }>;
+    pluginsUninstall: (
+      name: string,
+      keepData?: boolean,
+    ) => Promise<{ ok: boolean; output: string }>;
+    pluginsEnable: (
+      name: string,
+    ) => Promise<{ ok: boolean; output: string }>;
+    pluginsDisable: (
+      name: string,
+    ) => Promise<{ ok: boolean; output: string }>;
+    pluginsDetails: (
+      name: string,
+    ) => Promise<{ ok: boolean; output: string }>;
+    pluginsUpdate: (
+      name?: string | null,
+    ) => Promise<{ ok: boolean; output: string }>;
     hooksList: (projectPath?: string | null) => Promise<unknown>;
     skillsList: (projectPath?: string | null) => Promise<unknown>;
     worktrees: (projectPath: string) => Promise<unknown>;
+    worktreeCreate: (
+      projectPath: string,
+      label?: string | null,
+      gitRef?: string | null,
+    ) => Promise<{ ok: boolean; path?: string; output: string }>;
   };
   fs: {
     listDir: (

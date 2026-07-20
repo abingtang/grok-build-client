@@ -28,12 +28,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const setLocale = useCallback((next: Locale) => {
     setLocaleState(next);
-    persistLocale(next);
   }, []);
 
   const t = useMemo(() => createTranslator(locale), [locale]);
 
   useEffect(() => {
+    persistLocale(locale);
     setRuntimeTranslator(t);
     document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
   }, [locale, t]);

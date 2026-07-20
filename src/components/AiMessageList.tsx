@@ -72,6 +72,7 @@ import {
   turnElapsedMs,
 } from "@/lib/chat-segments";
 import type { ChatMessage, MessageAttachment, ToolMeta } from "@/lib/types";
+import { ChatMediaProvider } from "@/lib/chat-media";
 import { basename, countDiffLines } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 import {
@@ -141,6 +142,8 @@ interface Props {
   onForkMessage?: (messageId: string) => void;
   forkDisabled?: boolean;
   onStop?: () => void;
+  /** Directories for resolving relative chat images (project cwd, session dir). */
+  mediaBaseDirs?: string[];
 }
 
 function guessPathFromTitle(title: string): string {
@@ -1586,6 +1589,7 @@ export function AiMessageList({
   streamStatus,
   onForkMessage,
   forkDisabled,
+  mediaBaseDirs = [],
 }: Props) {
   const { t } = useI18n();
 
@@ -1594,6 +1598,10 @@ export function AiMessageList({
   const segments = useMemo(
     () => buildSegments(messages, { sessionBusy }),
     [messages, sessionBusy],
+  );
+  const mediaDirs = useMemo(
+    () => mediaBaseDirs.filter(Boolean),
+    [mediaBaseDirs.join("\0")],
   );
 
   const tick = useMemo(
@@ -1648,6 +1656,7 @@ export function AiMessageList({
   }
 
   return (
+    <ChatMediaProvider baseDirs={mediaDirs}>
     <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
       <Conversation className="min-h-0 w-full flex-1">
         <ConversationContent className="chat-col gap-5 px-[var(--chat-col-pad-x)] py-5 pr-10">
@@ -1732,5 +1741,6 @@ export function AiMessageList({
         onClose={() => setPreview(null)}
       />
     </div>
+    </ChatMediaProvider>
   );
 }

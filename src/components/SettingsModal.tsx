@@ -7,7 +7,6 @@ import type {
 } from "../lib/grokArgs";
 import {
   Dialog,
-  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -38,6 +37,9 @@ export interface SettingsState {
   subagents: boolean;
   memory: boolean;
   selfCheck: boolean;
+  maxTurns: number;
+  noPlan: boolean;
+  sandbox: string;
   themeLight: boolean;
   locale: Locale;
 }
@@ -117,27 +119,10 @@ export function SettingsModal({ open, value, onChange, onClose }: Props) {
   const set = <K extends keyof SettingsState>(key: K, v: SettingsState[K]) =>
     onChange({ ...value, [key]: v });
 
-  const effortOptions = [
-    { value: "low", label: t("settings.effortLow") },
-    { value: "medium", label: t("settings.effortMedium") },
-    { value: "high", label: t("settings.effortHigh") },
-    { value: "xhigh", label: t("settings.effortXhigh") },
-    { value: "max", label: t("settings.effortMax") },
-  ];
-
-  const permissionLabels: Record<string, string> = {
-    default: t("settings.permDefault"),
-    acceptEdits: t("settings.permAcceptEdits"),
-    auto: t("settings.permAuto"),
-    dontAsk: t("settings.permDontAsk"),
-    plan: t("settings.permPlan"),
-    bypassPermissions: t("settings.permBypass"),
-  };
-
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
-        className="flex h-[min(85vh,720px)] max-h-[min(85vh,720px)] w-[min(520px,calc(100vw-32px))] flex-col overflow-hidden p-0 sm:max-w-lg"
+        className="w-[min(520px,calc(100vw-32px))] overflow-hidden p-0 sm:max-w-lg"
         showClose
       >
         <DialogHeader className="shrink-0">
@@ -178,67 +163,6 @@ export function SettingsModal({ open, value, onChange, onClose }: Props) {
               </SettingsRow>
 
               <SettingsRow
-                title={t("settings.effort")}
-                description={t("settings.effortDesc")}
-              >
-                <AppSelect
-                  value={value.effort}
-                  onChange={(v) => set("effort", v as EffortLevel)}
-                  options={effortOptions}
-                />
-              </SettingsRow>
-
-              <SettingsRow
-                title={t("settings.reasoning")}
-                description={t("settings.reasoningDesc")}
-              >
-                <AppSelect
-                  value={value.reasoning}
-                  onChange={(v) => set("reasoning", v as ReasoningEffort)}
-                  options={[
-                    { value: "off", label: t("settings.reasoningOff") },
-                    ...effortOptions,
-                  ]}
-                />
-              </SettingsRow>
-
-              <SettingsRow
-                title={t("settings.permissionMode")}
-                description={t("settings.permissionModeDesc")}
-              >
-                <AppSelect
-                  value={value.permissionMode}
-                  disabled={value.alwaysApprove}
-                  onChange={(v) => set("permissionMode", v as PermissionMode)}
-                  options={[
-                    "default",
-                    "acceptEdits",
-                    "auto",
-                    "dontAsk",
-                    "plan",
-                    "bypassPermissions",
-                  ].map((x) => ({
-                    value: x,
-                    label: permissionLabels[x] || x,
-                  }))}
-                />
-              </SettingsRow>
-
-              <SettingsRow
-                title={t("settings.bestOfN")}
-                description={t("settings.bestOfNDesc")}
-              >
-                <AppSelect
-                  value={String(value.bestOfN)}
-                  onChange={(v) => set("bestOfN", Number(v))}
-                  options={[1, 2, 3, 4, 5].map((n) => ({
-                    value: String(n),
-                    label: String(n),
-                  }))}
-                />
-              </SettingsRow>
-
-              <SettingsRow
                 title={t("settings.alwaysApprove")}
                 description={t("settings.alwaysApproveDesc")}
               >
@@ -246,50 +170,6 @@ export function SettingsModal({ open, value, onChange, onClose }: Props) {
                   checked={value.alwaysApprove}
                   onCheckedChange={(v) => set("alwaysApprove", v)}
                   aria-label={t("settings.alwaysApprove")}
-                />
-              </SettingsRow>
-
-              <SettingsRow
-                title={t("settings.webSearch")}
-                description={t("settings.webSearchDesc")}
-              >
-                <Switch
-                  checked={value.webSearch}
-                  onCheckedChange={(v) => set("webSearch", v)}
-                  aria-label={t("settings.webSearch")}
-                />
-              </SettingsRow>
-
-              <SettingsRow
-                title={t("settings.subagents")}
-                description={t("settings.subagentsDesc")}
-              >
-                <Switch
-                  checked={value.subagents}
-                  onCheckedChange={(v) => set("subagents", v)}
-                  aria-label={t("settings.subagents")}
-                />
-              </SettingsRow>
-
-              <SettingsRow
-                title={t("settings.memory")}
-                description={t("settings.memoryDesc")}
-              >
-                <Switch
-                  checked={value.memory}
-                  onCheckedChange={(v) => set("memory", v)}
-                  aria-label={t("settings.memory")}
-                />
-              </SettingsRow>
-
-              <SettingsRow
-                title={t("settings.selfCheck")}
-                description={t("settings.selfCheckDesc")}
-              >
-                <Switch
-                  checked={value.selfCheck}
-                  onCheckedChange={(v) => set("selfCheck", v)}
-                  aria-label={t("settings.selfCheck")}
                 />
               </SettingsRow>
 

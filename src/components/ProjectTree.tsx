@@ -34,6 +34,7 @@ import {
   TrashIcon,
   UpdateIcon,
   MagnifyingGlassIcon,
+  TokensIcon,
 } from "@radix-ui/react-icons";
 
 interface Props {
@@ -57,6 +58,8 @@ interface Props {
   onRevealInFinder?: (project: ProjectInfo) => void;
   /** Open full-page global config (MCP / Skills / Hooks) */
   onOpenGlobalPage?: (tab: "mcp" | "skills" | "hooks") => void;
+  /** Open plugins management page */
+  onOpenPlugins?: () => void;
   /** Open command palette (session search lives there) */
   onOpenSearch?: () => void;
   /** Open session-scoped inspector for a session */
@@ -136,6 +139,14 @@ function GlobalHooksIcon() {
   return (
     <span className="sidebar-global-icon" aria-hidden>
       <LinkBreak2Icon width={14} height={14} />
+    </span>
+  );
+}
+
+function GlobalPluginsIcon() {
+  return (
+    <span className="sidebar-global-icon" aria-hidden>
+      <TokensIcon width={14} height={14} />
     </span>
   );
 }
@@ -300,7 +311,7 @@ function SessionTreeBranch({
   return (
     <div
       className={`session-tree-node${nested ? " session-tree-node-nested" : ""}`}
-      style={nested ? undefined : undefined}
+      data-depth={depth}
     >
       <div
         className={[
@@ -316,7 +327,6 @@ function SessionTreeBranch({
         ]
           .filter(Boolean)
           .join(" ")}
-        style={nested ? { paddingLeft: 0 } : undefined}
       >
         <button
           type="button"
@@ -452,6 +462,7 @@ export function ProjectTree({
   onRemoveProject,
   onRevealInFinder,
   onOpenGlobalPage,
+  onOpenPlugins,
   onOpenSearch,
   onOpenSessionInspector,
   onOpenSettings,
@@ -538,6 +549,15 @@ export function ProjectTree({
         >
           <GlobalHooksIcon />
           <span>{t("tree.navHooks")}</span>
+        </button>
+        <button
+          type="button"
+          className="sidebar-global-item"
+          title={t("tree.navPluginsTitle")}
+          onClick={() => onOpenPlugins?.()}
+        >
+          <GlobalPluginsIcon />
+          <span>{t("tree.navPlugins")}</span>
         </button>
       </nav>
 

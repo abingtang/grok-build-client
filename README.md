@@ -2,11 +2,11 @@
 
 # Grok Build Desktop
 
-### Unofficial macOS desktop client for the official [Grok Build CLI](https://x.ai/cli)
+### Unofficial macOS and Windows desktop client for the official [Grok Build CLI](https://x.ai/cli)
 
 Gives the `grok` CLI a real window: project switcher, session history, streaming ACP chat, slash commands, and a capability inspector — without inventing third-party workflows.
 
-[![Platform](https://img.shields.io/badge/platform-macOS-555)](#requirements)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-555)](#requirements)
 [![Built with](https://img.shields.io/badge/Electron%2035%20·%20React%2019%20·%20Vite%206-1c1c1c)](#architecture)
 [![License](https://img.shields.io/badge/license-MIT-2ea043)](#license--disclaimer)
 [![i18n](https://img.shields.io/badge/UI-中文%20%7C%20English-555)](#features)
@@ -40,16 +40,16 @@ Model list comes from your installed CLI (`grok models`), not a hardcoded cloud 
 - **Official CLI flags in the UI** — model, `--effort`, `--reasoning-effort`, `--always-approve`, `--permission-mode`, `--best-of-n`, web search, subagents, experimental memory, `--check`, `--cwd`, resume / continue
 - **Slash commands** — type `/` for a TUI-aligned command catalog (session, model, memory, extensions, …)
 - **Plan mode** — official ACP `session/set_mode plan`
-- **Capability inspector** (`⌘I`) — context stats, plan, rewind points, MCP, skills, hooks, worktree, subagents (`grok inspect` + local scans)
+- **Capability inspector** (`⌘I` / `Ctrl+I`) — context stats, plan, rewind points, MCP, skills, hooks, worktree, subagents (`grok inspect` + local scans)
 - **Permission gate** — allow once / always / reject tool calls
 - **Composer extras** — image & file attachments, `@` file mentions, in-memory prompt queue while a turn is running, fork from a message
-- **Command palette** (`⌘K`) — quick actions for new chat, project, plan, compact, theme, …
-- **Settings** (`⌘,`) — Claude Desktop–style modal for model / effort / permissions / theme / **UI language (中文 · English)**
+- **Command palette** (`⌘K` / `Ctrl+K`) — quick actions for new chat, project, plan, compact, theme, …
+- **Settings** (`⌘,` / `Ctrl+,`) — Claude Desktop–style modal for model / effort / permissions / theme / **UI language (中文 · English)**
 - **Light & dark** themes
 
 ### Requirements
 
-1. **macOS** (primary target; `npm run pack:mac` builds a Mac app directory)
+1. **macOS or Windows**
 2. **Node.js 20+** and **npm**
 3. **Grok Build CLI** installed and logged in:
 
@@ -64,10 +64,10 @@ Model list comes from your installed CLI (`grok models`), not a hardcoded cloud 
    | Source | Path |
    |--------|------|
    | Env | `$GROK_BIN` |
-   | Home install | `~/.grok/bin/grok` |
-   | User local | `~/.local/bin/grok` |
-   | Homebrew / system | `/opt/homebrew/bin/grok`, `/usr/local/bin/grok` |
-   | PATH | `grok` |
+   | Home install | `~/.grok/bin/grok` (macOS), `%USERPROFILE%\.grok\bin\grok.exe` (Windows) |
+   | User local (macOS) | `~/.local/bin/grok` |
+   | Homebrew / system (macOS) | `/opt/homebrew/bin/grok`, `/usr/local/bin/grok` |
+   | PATH | `grok` (macOS), `grok.exe` (Windows) |
 
 ### Quick start
 
@@ -78,16 +78,20 @@ npm install
 npm run electron:dev
 ```
 
-`electron:dev` will:
+`electron:dev` works in macOS Terminal, PowerShell, and Command Prompt. It will:
 
-1. Stop leftover Electron / Vite processes for this project  
-2. Compile the main process (`tsconfig.electron.json`)  
-3. Start Vite on `http://127.0.0.1:5175` and open Electron  
+1. Start Vite on `http://127.0.0.1:5175` (or `VITE_PORT`)
+2. Compile the Electron main process
+3. Open Electron after the development server is ready
 
-**Package (macOS app dir → `release/`):**
+**Package → `release/`:**
 
 ```bash
+# macOS app directory
 npm run pack:mac
+
+# Windows x64 NSIS installer (run on Windows)
+npm run pack:win
 ```
 
 **Typecheck only:**
@@ -100,13 +104,15 @@ npm run typecheck
 
 | Command | Description |
 |---------|-------------|
-| `npm run electron:dev` | Dev (recommended): clean + Vite + Electron |
-| `npm run electron:dev:raw` | Same without the cleanup script |
+| `npm run electron:dev` | Cross-platform Vite + Electron development mode |
+| `npm run electron:dev:raw` | Alias of `electron:dev` |
 | `npm run dev` | Vite UI only (no Electron) |
 | `npm run build` | Build renderer + main process |
 | `npm run typecheck` | Full TypeScript check |
 | `npm start` | Run Electron against an existing build |
 | `npm run pack:mac` | Production build + electron-builder (`dir` target) |
+| `npm run pack:win` | Production build + Windows x64 NSIS installer |
+| `npm run test:windows` | Verify Windows Grok executable resolution |
 
 ### Environment variables
 
@@ -149,7 +155,7 @@ npm run typecheck
 grok-build-desktop/
 ├── electron/           # Main process (ACP, IPC, CLI services)
 ├── src/                # Renderer (React UI + i18n)
-├── scripts/            # electron-dev.sh
+├── scripts/            # Cross-platform development launcher
 ├── package.json
 └── README.md
 ```
@@ -163,9 +169,9 @@ grok-build-desktop/
 
 | Shortcut | Action |
 |----------|--------|
-| `⌘K` | Command palette |
-| `⌘,` | Settings |
-| `⌘I` | Capability inspector |
+| `⌘K` / `Ctrl+K` | Command palette |
+| `⌘,` / `Ctrl+,` | Settings |
+| `⌘I` / `Ctrl+I` | Capability inspector |
 | `Enter` | Send |
 | `Shift+Enter` | Newline |
 | `/` | Slash command menu |
@@ -175,9 +181,10 @@ grok-build-desktop/
 
 | Symptom | What to try |
 |---------|-------------|
-| Cannot chat / grok not found | `which grok`, `grok login`, or set `GROK_BIN` |
+| Cannot chat / grok not found | Run `which grok` (macOS) or `where.exe grok` (Windows), then `grok login`; otherwise set `GROK_BIN` |
 | GUI PATH too short | App prepends `~/.grok/bin`, `/opt/homebrew/bin`, …; still broken → `GROK_BIN` |
 | Port in use | Change `VITE_PORT`, or free `5175` and re-run `electron:dev` |
+| Windows packaging fails on macOS | Run `npm run pack:win` on Windows; this project does not configure cross-signing |
 | Empty session list | Check `~/.grok/sessions` and that the project cwd matches |
 | Too many permission dialogs | Enable Always approve, or change permission mode in Settings |
 
@@ -193,7 +200,7 @@ grok-build-desktop/
 
 ### 简介
 
-**Grok Build Desktop** 是非官方 **macOS** 桌面客户端，用 **Electron + React** 包装官方 [Grok Build CLI](https://x.ai/cli)。与 xAI / Grok **无关联**。
+**Grok Build Desktop** 是非官方 **macOS / Windows** 桌面客户端，用 **Electron + React** 包装官方 [Grok Build CLI](https://x.ai/cli)。与 xAI / Grok **无关联**。
 
 - 依赖本机已安装并 `grok login` 的 `grok` 二进制  
 - **不**托管模型 API  
@@ -212,16 +219,16 @@ grok-build-desktop/
 - **官方参数上屏** — 模型、`--effort`、`--reasoning-effort`、始终批准、权限模式、Best-of-N、Web 搜索、子代理、实验性记忆、自验证、工作目录、resume 等  
 - **斜杠命令** — 输入 `/` 打开与 TUI 同款命令目录  
 - **Plan 模式** — 官方 ACP `session/set_mode plan`  
-- **能力检查器**（`⌘I`）— 上下文、Plan、Rewind、MCP、Skills、Hooks、Worktree、子代理  
+- **能力检查器**（`⌘I` / `Ctrl+I`）— 上下文、Plan、Rewind、MCP、Skills、Hooks、Worktree、子代理
 - **权限门** — 允许一次 / 始终允许 / 拒绝  
 - **输入增强** — 图片与文件附件、`@` 引用文件、回合进行中的消息队列、从某条消息分叉  
-- **命令面板**（`⌘K`）— 新建对话、打开项目、Plan、compact、主题等  
-- **设置**（`⌘,`）— 模型 / 力度 / 权限 / 主题 / **界面语言（中文 · English）**  
+- **命令面板**（`⌘K` / `Ctrl+K`）— 新建对话、打开项目、Plan、compact、主题等
+- **设置**（`⌘,` / `Ctrl+,`）— 模型 / 力度 / 权限 / 主题 / **界面语言（中文 · English）**
 - **浅色 / 深色** 主题  
 
 ### 环境要求
 
-1. **macOS**（主目标平台；`npm run pack:mac` 产出 Mac 应用目录）  
+1. **macOS 或 Windows**
 2. **Node.js 20+** 与 **npm**  
 3. 已安装并登录的 **Grok Build CLI**：
 
@@ -236,10 +243,10 @@ grok-build-desktop/
    | 来源 | 路径 |
    |------|------|
    | 环境变量 | `$GROK_BIN` |
-   | 家目录安装 | `~/.grok/bin/grok` |
-   | 用户本地 | `~/.local/bin/grok` |
-   | Homebrew / 系统 | `/opt/homebrew/bin/grok`、`/usr/local/bin/grok` |
-   | PATH | `grok` |
+   | 家目录安装 | macOS：`~/.grok/bin/grok`；Windows：`%USERPROFILE%\.grok\bin\grok.exe` |
+   | 用户本地（macOS） | `~/.local/bin/grok` |
+   | Homebrew / 系统（macOS） | `/opt/homebrew/bin/grok`、`/usr/local/bin/grok` |
+   | PATH | macOS：`grok`；Windows：`grok.exe` |
 
 ### 快速开始
 
@@ -250,16 +257,20 @@ npm install
 npm run electron:dev
 ```
 
-`electron:dev` 会：
+`electron:dev` 可在 macOS 终端、PowerShell 和命令提示符中运行，它会：
 
-1. 结束本项目残留的 Electron / Vite 进程  
-2. 编译主进程  
-3. 启动 Vite（默认 `http://127.0.0.1:5175`）并打开 Electron  
+1. 启动 Vite（默认 `http://127.0.0.1:5175`，可用 `VITE_PORT` 修改）
+2. 编译 Electron 主进程
+3. 开发服务器就绪后打开 Electron
 
 **打包（产物在 `release/`）：**
 
 ```bash
+# macOS 应用目录
 npm run pack:mac
+
+# Windows x64 NSIS 安装程序（请在 Windows 上运行）
+npm run pack:win
 ```
 
 **仅类型检查：**
@@ -272,13 +283,15 @@ npm run typecheck
 
 | 命令 | 说明 |
 |------|------|
-| `npm run electron:dev` | 开发模式（推荐） |
-| `npm run electron:dev:raw` | 开发模式（不清理旧进程） |
+| `npm run electron:dev` | 跨平台 Vite + Electron 开发模式 |
+| `npm run electron:dev:raw` | `electron:dev` 的别名 |
 | `npm run dev` | 仅 Vite 前端 |
 | `npm run build` | 构建前端 + 主进程 |
 | `npm run typecheck` | 全量 TypeScript 检查 |
 | `npm start` | 用已有构建启动 Electron |
-| `npm run pack:mac` | 生产构建 + electron-builder |
+| `npm run pack:mac` | 生产构建 + macOS 应用目录 |
+| `npm run pack:win` | 生产构建 + Windows x64 NSIS 安装程序 |
+| `npm run test:windows` | 验证 Windows Grok 可执行文件解析 |
 
 ### 环境变量
 
@@ -307,7 +320,7 @@ npm run typecheck
 grok-build-desktop/
 ├── electron/           # 主进程（ACP、IPC、CLI 服务）
 ├── src/                # 渲染进程（React UI + 国际化）
-├── scripts/            # electron-dev.sh
+├── scripts/            # 跨平台开发启动器
 ├── package.json
 └── README.md
 ```
@@ -321,9 +334,9 @@ grok-build-desktop/
 
 | 快捷键 | 作用 |
 |--------|------|
-| `⌘K` | 命令面板 |
-| `⌘,` | 设置 |
-| `⌘I` | 能力检查器 |
+| `⌘K` / `Ctrl+K` | 命令面板 |
+| `⌘,` / `Ctrl+,` | 设置 |
+| `⌘I` / `Ctrl+I` | 能力检查器 |
 | `Enter` | 发送 |
 | `Shift+Enter` | 换行 |
 | `/` | 斜杠命令菜单 |
@@ -333,9 +346,10 @@ grok-build-desktop/
 
 | 现象 | 建议 |
 |------|------|
-| 无法对话 / 找不到 grok | `which grok`、`grok login`，或设置 `GROK_BIN` |
+| 无法对话 / 找不到 grok | macOS 运行 `which grok`，Windows 运行 `where.exe grok`；再执行 `grok login`，或设置 `GROK_BIN` |
 | GUI 下 PATH 过短 | 应用会补充常见路径；仍失败时用 `GROK_BIN` |
 | 端口占用 | 改 `VITE_PORT`，或释放 `5175` 后重跑 |
+| 在 macOS 打包 Windows 失败 | 请在 Windows 上运行 `npm run pack:win`；项目未配置跨平台签名 |
 | 会话列表为空 | 检查 `~/.grok/sessions` 与项目 cwd |
 | 权限弹窗过多 | 设置中开启始终批准，或调整权限模式 |
 

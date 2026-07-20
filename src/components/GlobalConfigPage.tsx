@@ -1,5 +1,6 @@
 /**
  * Full-page global config: MCP / Skills / Hooks (not a right drawer).
+ * Title + refresh/close live in the app titlebar (App.tsx).
  */
 import { useI18n } from "../i18n";
 import type {
@@ -15,9 +16,6 @@ interface Props {
   mcpServers: McpServerView[];
   skills: SkillView[];
   hooks: HookView[];
-  onRefreshMcp: () => void;
-  onRefreshSkillsHooks: () => void;
-  onClose: () => void;
 }
 
 export function GlobalConfigPage({
@@ -25,9 +23,6 @@ export function GlobalConfigPage({
   mcpServers,
   skills,
   hooks,
-  onRefreshMcp,
-  onRefreshSkillsHooks,
-  onClose,
 }: Props) {
   const { t } = useI18n();
 
@@ -38,25 +33,8 @@ export function GlobalConfigPage({
         ? t("tree.navSkillsTitle")
         : t("tree.navHooksTitle");
 
-  const onRefresh = kind === "mcp" ? onRefreshMcp : onRefreshSkillsHooks;
-
   return (
     <div className="global-config-page" role="region" aria-label={title}>
-      <header className="global-config-header">
-        <div className="global-config-header-text">
-          <span className="global-config-scope">{t("inspector.scopeGlobal")}</span>
-          <h2>{title}</h2>
-        </div>
-        <div className="global-config-actions">
-          <button type="button" className="btn btn-sm" onClick={onRefresh}>
-            {t("common.refresh")}
-          </button>
-          <button type="button" className="btn btn-sm" onClick={onClose}>
-            {t("common.close")}
-          </button>
-        </div>
-      </header>
-
       <div className="global-config-body">
         {kind === "mcp" &&
           (mcpServers.length === 0 ? (

@@ -159,6 +159,12 @@ const api = {
     version: () => ipcRenderer.invoke("grok:version"),
     models: () => ipcRenderer.invoke("grok:models"),
     inspect: (cwd: string) => ipcRenderer.invoke("grok:inspect", cwd),
+    inspectJson: (cwd: string) =>
+      ipcRenderer.invoke("grok:inspectJson", cwd),
+    exportSession: (sessionId: string, outputPath?: string | null) =>
+      ipcRenderer.invoke("grok:exportSession", sessionId, outputPath),
+    worktrees: (projectPath?: string | null) =>
+      ipcRenderer.invoke("grok:worktrees", projectPath),
   },
 
   sessionMeta: {
@@ -172,13 +178,33 @@ const api = {
 
   extensions: {
     mcpList: () => ipcRenderer.invoke("mcp:list"),
+    mcpDoctor: (name?: string | null) =>
+      ipcRenderer.invoke("mcp:doctor", name),
     pluginsList: () => ipcRenderer.invoke("plugins:list"),
+    pluginsInstall: (source: string, trust?: boolean) =>
+      ipcRenderer.invoke("plugins:install", source, trust),
+    pluginsUninstall: (name: string, keepData?: boolean) =>
+      ipcRenderer.invoke("plugins:uninstall", name, keepData),
+    pluginsEnable: (name: string) =>
+      ipcRenderer.invoke("plugins:enable", name),
+    pluginsDisable: (name: string) =>
+      ipcRenderer.invoke("plugins:disable", name),
+    pluginsDetails: (name: string) =>
+      ipcRenderer.invoke("plugins:details", name),
+    pluginsUpdate: (name?: string | null) =>
+      ipcRenderer.invoke("plugins:update", name),
     hooksList: (projectPath?: string | null) =>
       ipcRenderer.invoke("hooks:list", projectPath),
     skillsList: (projectPath?: string | null) =>
       ipcRenderer.invoke("skills:list", projectPath),
     worktrees: (projectPath: string) =>
       ipcRenderer.invoke("git:worktrees", projectPath),
+    worktreeCreate: (
+      projectPath: string,
+      label?: string | null,
+      gitRef?: string | null,
+    ) =>
+      ipcRenderer.invoke("worktree:create", projectPath, label, gitRef),
   },
 
   fs: {

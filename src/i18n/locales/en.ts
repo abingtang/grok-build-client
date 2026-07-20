@@ -49,6 +49,13 @@ const en: MessageTree = {
     memoryDesc: "Cross-turn memory (--experimental-memory)",
     selfCheck: "Self-check",
     selfCheckDesc: "Run checks after a turn (--check)",
+    maxTurns: "Max turns",
+    maxTurnsDesc: "Maps to CLI --max-turns (desktop default 48)",
+    noPlan: "Disable plan",
+    noPlanDesc: "Maps to --no-plan for this session",
+    sandbox: "Sandbox",
+    sandboxDesc: "Maps to --sandbox (empty = CLI default)",
+    sandboxNone: "Default",
     themeLight: "Light theme",
     themeLightDesc: "Switch the UI to a light appearance",
     effortLow: "Low",
@@ -151,6 +158,7 @@ const en: MessageTree = {
     settings: "Settings",
     history: "Prompt history",
     docs: "Docs",
+    emptyBody: "(empty)",
   },
 
   permission: {
@@ -203,11 +211,52 @@ const en: MessageTree = {
     navMcp: "MCP",
     navSkills: "Skills",
     navHooks: "Hooks",
+    navPlugins: "Plugins/Market",
     navMcpTitle: "Global MCP servers",
     navSkillsTitle: "Global Skills",
     navHooksTitle: "Global Hooks",
+    navPluginsTitle: "Plugins and marketplace",
     openSessionInspector: "Session details",
     openSessionInspectorTitle: "Open context / Plan / Rewind for this session",
+  },
+
+  newSession: {
+    optionsTitle: "New session options",
+    worktree: "Git worktree",
+    worktreeDesc: "Run this session in an isolated worktree (CLI --worktree)",
+    worktreeLabel: "Worktree name (optional)",
+    worktreeLabelPh: "e.g. feat-ui",
+    forkSession: "Fork current session",
+    forkSessionDesc:
+      "Copy history into a new session (--fork-session / x.ai/session/fork)",
+    forkSessionNeedParent: "Need an active session before forking",
+    worktreeCreated: "Worktree created: {path}",
+    worktreeFailed: "Worktree failed: {msg}",
+    forked: "Forked as session {sid}",
+    forkFailed: "Fork failed: {msg}; creating a normal session instead",
+  },
+
+  plugins: {
+    title: "Plugins",
+    subtitle: "Install, enable, and remove plugins via official grok plugin",
+    installLabel: "Install source",
+    installPlaceholder: "git URL / user/repo / local path",
+    installHint:
+      "Examples: owner/plugin-repo, /path/to/plugin, or https://github.com/…",
+    install: "Install",
+    installing: "Installing…",
+    empty: "No plugins installed.",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    enable: "Enable",
+    disable: "Disable",
+    update: "Update",
+    updateAll: "Update all",
+    updating: "Updating…",
+    details: "Details",
+    uninstall: "Uninstall",
+    confirmUninstall: "Uninstall plugin “{name}”?",
+    actionFailed: "Action failed",
   },
 
   inspector: {
@@ -314,6 +363,8 @@ const en: MessageTree = {
     rewindRestored: "Rewind #{index}: restored {n} file(s)",
     rewindErrors: "\nErrors: {errors}",
     selectProjectFirst: "Select a project folder first.",
+    needSessionForInspector:
+      "Select or create a session first to open session details.",
     waitBeforeFork: "Wait for the current turn to finish before forking.",
     noForkContext: "No conversation context before this message to fork.",
     forkedContinue:

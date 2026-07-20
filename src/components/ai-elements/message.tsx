@@ -5,6 +5,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  ChatMarkdownImage,
+  LOCAL_MEDIA_ORIGIN,
+} from "@/lib/chat-media";
 import { cn } from "@/lib/utils";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
@@ -12,7 +16,33 @@ import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import type { UIMessage } from "ai";
 import type { ComponentProps, HTMLAttributes } from "react";
-import { Streamdown } from "streamdown";
+import { harden } from "rehype-harden";
+import {
+  Streamdown,
+  defaultRehypePlugins,
+  type Components,
+} from "streamdown";
+import type { PluggableList } from "unified";
+
+/** Allow relative local images (e.g. images/1.jpg) past rehype-harden. */
+const chatRehypePlugins = [
+  defaultRehypePlugins.raw,
+  defaultRehypePlugins.sanitize,
+  [
+    harden,
+    {
+      allowedImagePrefixes: ["*"],
+      allowedLinkPrefixes: ["*"],
+      allowedProtocols: ["*"],
+      allowDataImages: true,
+      defaultOrigin: LOCAL_MEDIA_ORIGIN,
+    },
+  ],
+] as PluggableList;
+
+const chatMarkdownComponents = {
+  img: ChatMarkdownImage,
+} as Components;
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -103,6 +133,8 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown> & {
 export const MessageResponse = ({
   className,
   isAnimating,
+  components,
+  rehypePlugins,
   ...props
 }: MessageResponseProps) => (
   <Streamdown
@@ -116,6 +148,8 @@ export const MessageResponse = ({
     controls={false}
     lineNumbers={false}
     isAnimating={isAnimating}
+    rehypePlugins={rehypePlugins ?? chatRehypePlugins}
+    components={{ ...chatMarkdownComponents, ...components }}
     {...props}
   />
 );

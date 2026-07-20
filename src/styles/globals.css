@@ -66,24 +66,24 @@
 /* Light theme */
 :root[data-theme="light"],
 .light {
-  --background: #f6f3ec;
-  --foreground: #1f1d19;
-  --card: #fbf9f3;
-  --card-foreground: #1f1d19;
+  --background: #fbfbfa;
+  --foreground: #20201d;
+  --card: #ffffff;
+  --card-foreground: #20201d;
   --popover: #ffffff;
-  --popover-foreground: #1f1d19;
-  --primary: #1f1d19;
-  --primary-foreground: #f6f3ec;
-  --secondary: #e8e4d9;
-  --secondary-foreground: #1f1d19;
-  --muted: #e8e4d9;
-  --muted-foreground: #5c5953;
-  --accent: #e8e4d9;
-  --accent-foreground: #1f1d19;
-  --destructive: #b05a5a;
-  --border: #e1dcce;
-  --input: #d4cfbe;
-  --ring: #8e8b83;
+  --popover-foreground: #20201d;
+  --primary: #20201d;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f1ee;
+  --secondary-foreground: #20201d;
+  --muted: #f1f1ee;
+  --muted-foreground: #65655f;
+  --accent: #ececea;
+  --accent-foreground: #20201d;
+  --destructive: #b84a4a;
+  --border: #e4e4df;
+  --input: #d8d8d2;
+  --ring: #8a8a83;
 }
 
 @layer base {
@@ -151,8 +151,8 @@
 
 :root[data-theme="light"] .ui-switch:not([data-state="checked"]),
 .light .ui-switch:not([data-state="checked"]) {
-  background: #b5b0a6;
-  background-color: #b5b0a6;
+  background: #b8b8b1;
+  background-color: #b8b8b1;
 }
 
 /* ToggleGroup：激活态实心 primary，避免与轨道糊在一起 */
@@ -401,8 +401,8 @@ button.ui-composer-send--error {
 
 :root[data-theme="light"] .chat-process,
 .light .chat-process {
-  background: color-mix(in srgb, var(--muted, #e8e4d9) 55%, #ffffff);
-  border-color: color-mix(in srgb, var(--border, #e1dcce) 90%, transparent);
+  background: color-mix(in srgb, var(--muted, #f1f1ee) 55%, #ffffff);
+  border-color: color-mix(in srgb, var(--border, #e4e4df) 90%, transparent);
 }
 
 .chat-process[data-live="true"] {
@@ -412,7 +412,7 @@ button.ui-composer-send--error {
 
 :root[data-theme="light"] .chat-process[data-live="true"],
 .light .chat-process[data-live="true"] {
-  background: color-mix(in srgb, var(--warn, #8a7240) 8%, #fbf9f3);
+  background: color-mix(in srgb, var(--warn, #8a6a2f) 8%, #ffffff);
 }
 
 /* 外层标题行（已处理 Xs · …） */
@@ -521,7 +521,7 @@ div.chat-process-row:hover {
 :root[data-theme="light"] .chat-process--thought,
 .light .chat-process--thought {
   border-color: color-mix(in srgb, var(--thought, #7d8fa3) 28%, var(--border));
-  background: color-mix(in srgb, var(--thought, #7d8fa3) 10%, #fbf9f3);
+  background: color-mix(in srgb, var(--thought, #6b7280) 8%, #ffffff);
 }
 
 .chat-process--thought[data-live="true"] {
@@ -541,7 +541,7 @@ div.chat-process-row:hover {
 
 :root[data-theme="light"] .chat-process-thought-body,
 .light .chat-process-thought-body {
-  color: var(--muted-foreground, #5c5953);
+  color: var(--muted-foreground, #65655f);
 }
 
 /* Streamdown / AI Elements message prose — flat single-shell cards */

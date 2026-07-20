@@ -64,6 +64,16 @@ export async function listPlugins(): Promise<string> {
   return out.trim() || "(no plugins)";
 }
 
+/** `grok mcp doctor [--json] [name]` */
+export async function mcpDoctor(name?: string | null): Promise<string> {
+  const args = ["mcp", "doctor", "--json"];
+  if (name) args.push(name);
+  const { out, code } = await run(args);
+  if (out.trim()) return out.trim();
+  const plain = await run(name ? ["mcp", "doctor", name] : ["mcp", "doctor"]);
+  return plain.out.trim() || (code === 0 ? "ok" : "doctor failed");
+}
+
 export interface HookInfo {
   source: string;
   name: string;
