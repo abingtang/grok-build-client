@@ -63,9 +63,10 @@ export function buildTurnNavItems(segments: Segment[]): TurnNavItem[] {
 type Props = {
   items: TurnNavItem[];
   className?: string;
+  onJump?: (item: TurnNavItem) => void;
 };
 
-export function TurnNavigator({ items, className }: Props) {
+export function TurnNavigator({ items, className, onJump }: Props) {
   const { t } = useI18n();
   const { scrollRef, stopScroll } = useStickToBottomContext();
   const [activeId, setActiveId] = useState<string | null>(
@@ -125,18 +126,29 @@ export function TurnNavigator({ items, className }: Props) {
   }, [idList, items, scrollRef]);
 
   const jumpTo = useCallback(
-    (id: string) => {
+    (item: TurnNavItem) => {
+      if (onJump) {
+        stopScroll();
+        setActiveId(item.id);
+        onJump(item);
+        return;
+      }
       const root = scrollRef.current;
       if (!root) return;
       const el = root.querySelector<HTMLElement>(
-        `[data-turn-id="${CSS.escape(id)}"]`,
+        `[data-turn-id="${CSS.escape(item.id)}"]`,
       );
       if (!el) return;
       stopScroll();
-      setActiveId(id);
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      setActiveId(item.id);
+      el.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+        block: "start",
+      });
     },
-    [scrollRef, stopScroll],
+    [onJump, scrollRef, stopScroll],
   );
 
   if (items.length < 2) return null;
@@ -180,7 +192,7 @@ export function TurnNavigator({ items, className }: Props) {
                   label: it.label,
                 })}
                 aria-current={active ? "true" : undefined}
-                onClick={() => jumpTo(it.id)}
+                onClick={() => jumpTo(it)}
               >
                 <span className="turn-nav-dot" aria-hidden />
                 <span className="turn-nav-meta">

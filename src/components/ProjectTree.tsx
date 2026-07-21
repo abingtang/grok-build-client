@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArchiveIcon,
   ChevronRightIcon,
@@ -693,9 +694,17 @@ export function ProjectTree({
                 {isOpen ? (
                   <div className="tree-children">
                     {isLoading ? (
-                      <div className="tree-row muted">
-                        <span className="tree-mini-spinner" aria-hidden />
-                        {t("tree.loadingSessions")}
+                      <div
+                        role="status"
+                        aria-busy="true"
+                        aria-label={t("tree.loadingSessions")}
+                      >
+                        {["w-3/4", "w-5/6", "w-2/3"].map((width) => (
+                          <div key={width} className="tree-row" aria-hidden>
+                            <Skeleton className="size-3 shrink-0 rounded-sm" />
+                            <Skeleton className={`h-3 ${width}`} />
+                          </div>
+                        ))}
                       </div>
                     ) : sessions.length === 0 ? (
                       <div className="tree-row muted">{t("tree.noSessions")}</div>

@@ -79,7 +79,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
-    minWidth: 1100,
+    minWidth: 820,
     minHeight: 700,
     icon: path.join(__dirname, "../electron/assets/image/icon.png"),
     ...(process.platform === "darwin"

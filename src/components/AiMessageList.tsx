@@ -8,7 +8,9 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -23,6 +25,7 @@ import { ChatEmptyState } from "@/components/ChatEmptyState";
 import {
   TurnNavigator,
   buildTurnNavItems,
+  type TurnNavItem,
 } from "@/components/TurnNavigator";
 import { Loader } from "@/components/ai-elements/loader";
 import {
@@ -63,6 +66,7 @@ import {
 } from "@/components/ui/collapsible";
 import {
   type AgentTurn,
+  type Segment,
   buildSegments,
   formatDuration,
   isEditTool,
@@ -87,6 +91,8 @@ import {
   TerminalIcon,
   WrenchIcon,
 } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useStickToBottomContext } from "use-stick-to-bottom";
 
 /** How many edited files to show before "再显示 N 个文件". */
 const EDIT_LIST_PREVIEW = 3;
@@ -1581,6 +1587,228 @@ function AgentTurnView({
   );
 }
 
+function segmentKey(seg: Segment, index: number): string {
+  if (seg.type === "user") return seg.message.id;
+  if (seg.type === "system") return seg.message.id;
+  return seg.id || `agent-${index}`;
+}
+
+function segmentTurnId(seg: Segment): string | undefined {
+  if (seg.type === "user") return seg.message.id;
+  if (seg.type === "agent-turn") return seg.id;
+  return undefined;
+}
+
+function estimateSegmentSize(seg?: Segment): number {
+  if (!seg) return 220;
+  if (seg.type === "user") return 96;
+  if (seg.type === "system") return 64;
+  return seg.edits.length > 0 ? 360 : 260;
+}
+
+function TranscriptSegment({
+  seg,
+  streamStatus,
+  onForkMessage,
+  forkDisabled,
+  lastAgentTurnId,
+  onPreview,
+}: {
+  seg: Segment;
+  streamStatus?: { phase: string; elapsedMs: number } | null;
+  onForkMessage?: (id: string) => void;
+  forkDisabled?: boolean;
+  lastAgentTurnId?: string;
+  onPreview: (state: FilePreviewState) => void;
+}) {
+  if (seg.type === "user") {
+    const m = seg.message;
+    return (
+      <div data-turn-id={m.id} className="turn-anchor scroll-mt-3">
+        <Message from="user">
+          <MessageContent>
+            {m.content ? (
+              <div className="chat-msg-body whitespace-pre-wrap">
+                {m.content}
+              </div>
+            ) : null}
+            <AttachmentStrip items={m.attachments} />
+          </MessageContent>
+        </Message>
+      </div>
+    );
+  }
+
+  if (seg.type === "system") {
+    const m = seg.message;
+    return (
+      <div className="rounded-md border border-dashed border-border/80 px-3 py-2 text-xs text-muted-foreground">
+        {m.toolName ? (
+          <strong className="text-foreground/80">{m.toolName} · </strong>
+        ) : null}
+        {m.content}
+      </div>
+    );
+  }
+
+  return (
+    <div data-turn-id={seg.id} className="turn-anchor scroll-mt-3">
+      <AgentTurnView
+        turn={seg}
+        liveElapsedMs={seg.live ? streamStatus?.elapsedMs : undefined}
+        onForkMessage={onForkMessage}
+        forkDisabled={forkDisabled}
+        isLastTurn={seg.id === lastAgentTurnId}
+        onPreview={onPreview}
+      />
+    </div>
+  );
+}
+
+function VirtualizedTranscript({
+  segments,
+  tick,
+  phaseLabel,
+  elapsedSec,
+  streamStatus,
+  onForkMessage,
+  forkDisabled,
+  onPreview,
+}: {
+  segments: Segment[];
+  tick: string;
+  phaseLabel: string | null;
+  elapsedSec: number;
+  streamStatus?: { phase: string; elapsedMs: number } | null;
+  onForkMessage?: (id: string) => void;
+  forkDisabled?: boolean;
+  onPreview: (state: FilePreviewState) => void;
+}) {
+  const { scrollRef, stopScroll } = useStickToBottomContext();
+  const [initialPositioned, setInitialPositioned] = useState(false);
+  const didInitialPosition = useRef(false);
+  const virtualizer = useVirtualizer({
+    count: segments.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (index) => estimateSegmentSize(segments[index]),
+    // The first virtual range must be the tail. Waiting for the scroll
+    // container to measure renders the head briefly, then visibly corrects.
+    initialOffset: () =>
+      segments.reduce((total, seg) => total + estimateSegmentSize(seg), 0),
+    getItemKey: (index) => segmentKey(segments[index]!, index),
+    anchorTo: "end",
+    followOnAppend: "auto",
+    overscan: 8,
+  });
+
+  useLayoutEffect(() => {
+    if (didInitialPosition.current) return;
+
+    let settleFrame = 0;
+    virtualizer.scrollToEnd({ behavior: "auto" });
+
+    const measureFrame = requestAnimationFrame(() => {
+      virtualizer.scrollToEnd({ behavior: "auto" });
+      settleFrame = requestAnimationFrame(() => {
+        const scrollElement = scrollRef.current;
+        if (scrollElement) {
+          // The browser clamps this to the exact maximum scroll offset after
+          // the virtual tail has been mounted and measured.
+          scrollElement.scrollTop = scrollElement.scrollHeight;
+        }
+        didInitialPosition.current = true;
+        setInitialPositioned(true);
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(measureFrame);
+      cancelAnimationFrame(settleFrame);
+    };
+  }, [scrollRef, virtualizer]);
+
+  const turnNavItems = useMemo(
+    () => buildTurnNavItems(segments),
+    [segments],
+  );
+  const segmentIndexByTurnId = useMemo(() => {
+    const map = new Map<string, number>();
+    segments.forEach((seg, index) => {
+      const id = segmentTurnId(seg);
+      if (id) map.set(id, index);
+    });
+    return map;
+  }, [segments]);
+  const lastAgentTurnId = useMemo(
+    () =>
+      [...segments].reverse().find((s) => s.type === "agent-turn")?.id,
+    [segments],
+  );
+  const jumpToTurn = useCallback(
+    (item: TurnNavItem) => {
+      const index = segmentIndexByTurnId.get(item.id);
+      if (index == null) return;
+      stopScroll();
+      virtualizer.scrollToIndex(index, {
+        align: "start",
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+    },
+    [segmentIndexByTurnId, stopScroll, virtualizer],
+  );
+
+  return (
+    <>
+      <ConversationContent
+        className="chat-col px-[var(--chat-col-pad-x)] py-5 pr-10"
+        style={{ visibility: initialPositioned ? "visible" : "hidden" }}
+      >
+        <ConversationAutoScroll tick={tick} />
+
+        {phaseLabel ? (
+          <Loader label={phaseLabel} elapsedSec={elapsedSec} />
+        ) : null}
+
+        <div
+          className="relative w-full"
+          style={{ height: `${virtualizer.getTotalSize()}px` }}
+        >
+          {virtualizer.getVirtualItems().map((item) => {
+            const seg = segments[item.index];
+            if (!seg) return null;
+            return (
+              <div
+                key={item.key}
+                ref={virtualizer.measureElement}
+                data-index={item.index}
+                className="absolute left-0 top-0 w-full pb-5"
+                style={{ transform: `translateY(${item.start}px)` }}
+              >
+                <TranscriptSegment
+                  seg={seg}
+                  streamStatus={streamStatus}
+                  onForkMessage={onForkMessage}
+                  forkDisabled={forkDisabled}
+                  lastAgentTurnId={lastAgentTurnId}
+                  onPreview={onPreview}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </ConversationContent>
+      {initialPositioned ? (
+        <>
+          <TurnNavigator items={turnNavItems} onJump={jumpToTurn} />
+          <ConversationScrollButton />
+        </>
+      ) : null}
+    </>
+  );
+}
+
 /* ─── main list ─── */
 
 export function AiMessageList({
@@ -1636,17 +1864,6 @@ export function AiMessageList({
     setPreview(state);
   }, []);
 
-  const turnNavItems = useMemo(
-    () => buildTurnNavItems(segments),
-    [segments],
-  );
-
-  const lastAgentTurnId = useMemo(
-    () =>
-      [...segments].reverse().find((s) => s.type === "agent-turn")?.id,
-    [segments],
-  );
-
   if (messages.length === 0 && !streamStatus) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1658,76 +1875,17 @@ export function AiMessageList({
   return (
     <ChatMediaProvider baseDirs={mediaDirs}>
     <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-      <Conversation className="min-h-0 w-full flex-1">
-        <ConversationContent className="chat-col gap-5 px-[var(--chat-col-pad-x)] py-5 pr-10">
-          <ConversationAutoScroll tick={tick} />
-
-          {phaseLabel ? (
-            <Loader label={phaseLabel} elapsedSec={elapsedSec} />
-          ) : null}
-
-          {segments.map((seg) => {
-            if (seg.type === "user") {
-              const m = seg.message;
-              return (
-                <div
-                  key={m.id}
-                  data-turn-id={m.id}
-                  className="turn-anchor scroll-mt-3"
-                >
-                  <Message from="user">
-                    <MessageContent>
-                      {m.content ? (
-                        <div className="chat-msg-body whitespace-pre-wrap">
-                          {m.content}
-                        </div>
-                      ) : null}
-                      <AttachmentStrip items={m.attachments} />
-                    </MessageContent>
-                  </Message>
-                </div>
-              );
-            }
-
-            if (seg.type === "system") {
-              const m = seg.message;
-              return (
-                <div
-                  key={m.id}
-                  className="rounded-md border border-dashed border-border/80 px-3 py-2 text-xs text-muted-foreground"
-                >
-                  {m.toolName ? (
-                    <strong className="text-foreground/80">
-                      {m.toolName} ·{" "}
-                    </strong>
-                  ) : null}
-                  {m.content}
-                </div>
-              );
-            }
-
-            return (
-              <div
-                key={seg.id}
-                data-turn-id={seg.id}
-                className="turn-anchor scroll-mt-3"
-              >
-                <AgentTurnView
-                  turn={seg}
-                  liveElapsedMs={
-                    seg.live ? streamStatus?.elapsedMs : undefined
-                  }
-                  onForkMessage={onForkMessage}
-                  forkDisabled={forkDisabled}
-                  isLastTurn={seg.id === lastAgentTurnId}
-                  onPreview={handlePreview}
-                />
-              </div>
-            );
-          })}
-        </ConversationContent>
-        <TurnNavigator items={turnNavItems} />
-        <ConversationScrollButton />
+      <Conversation initial={false} className="min-h-0 w-full flex-1">
+        <VirtualizedTranscript
+          segments={segments}
+          tick={tick}
+          phaseLabel={phaseLabel}
+          elapsedSec={elapsedSec}
+          streamStatus={streamStatus}
+          onForkMessage={onForkMessage}
+          forkDisabled={forkDisabled}
+          onPreview={handlePreview}
+        />
       </Conversation>
 
       <FilePreviewSidebar

@@ -12,8 +12,8 @@ export function Conversation({ className, ...props }: ConversationProps) {
       // Outer shell: only layout + clip. Scroll lives on StickToBottom.Content's
       // scrollRef — putting overflow-y-auto here creates a second scrollbar.
       className={cn("relative flex min-h-0 flex-1 flex-col overflow-hidden", className)}
-      initial="smooth"
-      resize="smooth"
+      initial="instant"
+      resize="instant"
       role="log"
       {...props}
     />

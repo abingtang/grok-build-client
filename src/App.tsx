@@ -6,6 +6,9 @@ import {
   useState,
   type ChangeEvent,
   type ClipboardEvent,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   CommandPalette,
@@ -55,7 +58,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PlusIcon } from "@radix-ui/react-icons";
+import {
+  HamburgerMenuIcon,
+  UploadIcon,
+} from "@radix-ui/react-icons";
 import {
   buildGrokArgs,
   type EffortLevel,
@@ -74,10 +80,21 @@ import type {
   SlashCommandDef,
 } from "./lib/types";
 import { streamBuffer } from "./lib/streamBuffer";
+import { cn } from "./lib/utils";
 import { rt, useI18n } from "./i18n";
 
 const MAX_ATTACHMENTS = 8;
 const MAX_IMAGE_INLINE_BYTES = 4 * 1024 * 1024;
+const SIDEBAR_AUTO_COLLAPSE_QUERY = "(max-width: 1250px)";
+const SIDEBAR_DEFAULT_WIDTH = 280;
+const SIDEBAR_MIN_WIDTH = 220;
+const SIDEBAR_MAX_WIDTH = 480;
+const SIDEBAR_COLLAPSE_THRESHOLD = 180;
+const SIDEBAR_KEYBOARD_STEP = 10;
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
+}
 
 function isImageMime(mime: string | undefined): boolean {
   return !!mime && mime.startsWith("image/");
@@ -186,6 +203,10 @@ function loadThemeLight(): boolean {
   return window.matchMedia?.("(prefers-color-scheme: light)").matches ?? false;
 }
 
+function shouldAutoCollapseSidebar(): boolean {
+  return window.matchMedia?.(SIDEBAR_AUTO_COLLAPSE_QUERY).matches ?? false;
+}
+
 export default function App() {
   const { t, locale, setLocale } = useI18n();
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
@@ -263,6 +284,10 @@ export default function App() {
   >([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [themeLight, setThemeLight] = useState(loadThemeLight);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    shouldAutoCollapseSidebar,
+  );
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
 
   const [model, setModel] = useState<string>(
     () => loadLS(LS.model, "grok-4.5"),
@@ -352,6 +377,15 @@ export default function App() {
   }, []);
 
   const sessionsCacheRef = useRef<Record<string, SessionSummary[]>>({});
+  const transcriptCacheRef = useRef<Record<string, ChatMessage[]>>({});
+  const sessionLoadSeqRef = useRef(0);
+
+  const clearTranscriptCache = (sessionId: string | null) => {
+    if (!sessionId) return;
+    for (const key of Object.keys(transcriptCacheRef.current)) {
+      if (key.startsWith(`${sessionId}:`)) delete transcriptCacheRef.current[key];
+    }
+  };
 
   const loadSessionsForProject = useCallback(
     async (projectPath: string, opts?: { force?: boolean }) => {
@@ -404,6 +438,77 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = themeLight ? "light" : "dark";
   }, [themeLight]);
+
+  useEffect(() => {
+    const media = window.matchMedia(SIDEBAR_AUTO_COLLAPSE_QUERY);
+    const onChange = (event: MediaQueryListEvent) => {
+      setSidebarCollapsed(event.matches);
+    };
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  const startSidebarResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+
+      const handle = event.currentTarget;
+      let nextWidth = event.clientX;
+      handle.setPointerCapture(event.pointerId);
+      document.body.classList.add("is-resizing-sidebar");
+
+      const onMove = (moveEvent: PointerEvent) => {
+        nextWidth = moveEvent.clientX;
+        if (nextWidth >= SIDEBAR_COLLAPSE_THRESHOLD) {
+          setSidebarWidth(clampSidebarWidth(nextWidth));
+        }
+      };
+
+      const stop = () => {
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", stop);
+        handle.removeEventListener("pointercancel", stop);
+        document.body.classList.remove("is-resizing-sidebar");
+
+        if (nextWidth < SIDEBAR_COLLAPSE_THRESHOLD) {
+          setSidebarCollapsed(true);
+        } else {
+          setSidebarWidth(clampSidebarWidth(nextWidth));
+        }
+      };
+
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", stop);
+      handle.addEventListener("pointercancel", stop);
+    },
+    [],
+  );
+
+  const resizeSidebarWithKeyboard = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "ArrowLeft" && sidebarWidth <= SIDEBAR_MIN_WIDTH) {
+        event.preventDefault();
+        setSidebarCollapsed(true);
+        return;
+      }
+
+      const nextWidth =
+        event.key === "ArrowLeft"
+          ? sidebarWidth - SIDEBAR_KEYBOARD_STEP
+          : event.key === "ArrowRight"
+            ? sidebarWidth + SIDEBAR_KEYBOARD_STEP
+            : event.key === "Home"
+              ? SIDEBAR_MIN_WIDTH
+              : event.key === "End"
+                ? SIDEBAR_MAX_WIDTH
+                : null;
+      if (nextWidth == null) return;
+      event.preventDefault();
+      setSidebarWidth(clampSidebarWidth(nextWidth));
+    },
+    [sidebarWidth],
+  );
 
   // rAF-coalesced stream buffer → React messages
   useEffect(() => {
@@ -890,10 +995,20 @@ export default function App() {
   ): Promise<void> {
     const proj = owner || project;
     if (!proj) return;
+    const loadSeq = ++sessionLoadSeqRef.current;
+    const sessionCwd = s.cwd || proj.path;
+    const cacheKey = [
+      s.id,
+      sessionCwd,
+      s.updatedAt || "",
+      s.numMessages || "",
+    ].join(":");
+    const cached = transcriptCacheRef.current[cacheKey];
+    const isCurrentLoad = () => loadSeq === sessionLoadSeqRef.current;
 
     setSessionLoading(true);
     setSession(s);
-    setMessages([]);
+    setMessages(cached ? cached.map((m) => ({ ...m })) : []);
     setAttachments([]);
     draftNewSessionRef.current = false;
     setShowNewSessionOpts(false);
@@ -906,9 +1021,13 @@ export default function App() {
     forkParentRef.current = null;
 
     try {
+      const transcriptPromise = cached
+        ? Promise.resolve(null)
+        : window.grokDesktop.sessions.transcript(s.id, sessionCwd);
+
       // Switch project context without reordering the tree
       if (!project || project.path !== proj.path) {
-        await activateProject(proj, { clearChat: false, connectAcp: true });
+        await activateProject(proj, { clearChat: false, connectAcp: false });
       } else {
         setProject(proj);
         expandProject(proj.path);
@@ -917,87 +1036,94 @@ export default function App() {
       headlessSessionIdRef.current = s.id;
       acpSessionIdRef.current = s.id;
       continueRef.current = true;
-      try {
-        await ensureAcpAgent(proj.path);
-        await window.grokDesktop.acp.loadSession(s.id, proj.path);
-        setStatus((st) => ({
-          ...st,
-          connected: true,
-          sessionId: s.id,
-          cwd: proj.path,
-        }));
-      } catch {
-        /* disk transcript still loads; next prompt will create ACP session */
-      }
-      // TUI source of truth: ~/.grok/sessions/.../updates.jsonl
-      // 若尚无真实回合，会回退 desktop_snapshot.json（fork 消息）
-      const transcript = (await window.grokDesktop.sessions.transcript(
-        s.id,
-        s.cwd || proj.path,
-      )) as Array<{
-        id: string;
-        kind: string;
-        content: string;
-        title?: string;
-        status?: string;
-        timestamp?: number;
-        meta?: ChatMessage["meta"];
-      }>;
-
-      const kindToRole = (kind: string): ChatMessage["role"] => {
-        switch (kind) {
-          case "user":
-          case "assistant":
-          case "thought":
-          case "tool":
-          case "plan":
-          case "subagent":
-          case "system":
-            return kind;
-          default:
-            return "system";
+      void (async () => {
+        try {
+          await ensureAcpAgent(proj.path);
+          await window.grokDesktop.acp.loadSession(s.id, proj.path);
+          if (!isCurrentLoad()) return;
+          setStatus((st) => ({
+            ...st,
+            connected: true,
+            sessionId: s.id,
+            cwd: proj.path,
+          }));
+        } catch {
+          /* disk transcript still loads; next prompt will create ACP session */
         }
-      };
+      })();
 
-      const restored: ChatMessage[] = transcript
-        .filter((row) => {
-          const text = String(row.content || "").trim();
-          // 双保险：transcript 侧已过滤，这里再挡一层历史/边界数据
-          if (!text && row.kind !== "tool") return false;
-          if (
-            text.startsWith("<system-reminder>") ||
-            text.includes("<system-reminder>")
-          ) {
-            return false;
-          }
-          if (text.startsWith("<user_info>") || text.includes("<user_info>")) {
-            return false;
-          }
-          return true;
-        })
-        .map((row) => ({
-          id: row.id || uid(),
-          role: kindToRole(row.kind),
-          content: row.content || "",
-          toolName: row.title,
-          status: row.status,
-          createdAt: row.timestamp
-            ? new Date(
-                row.timestamp > 1e12 ? row.timestamp : row.timestamp * 1000,
-              ).toISOString()
-            : new Date().toISOString(),
-          collapsed: row.kind === "thought",
-          meta: (row as { meta?: ChatMessage["meta"] }).meta,
-        }));
+      if (!isCurrentLoad()) return;
+      if (!cached) {
+        // TUI source of truth: ~/.grok/sessions/.../updates.jsonl
+        // 若尚无真实回合，会回退 desktop_snapshot.json（fork 消息）
+        const transcript = (await transcriptPromise) as Array<{
+          id: string;
+          kind: string;
+          content: string;
+          title?: string;
+          status?: string;
+          timestamp?: number;
+          meta?: ChatMessage["meta"];
+        }>;
+        if (!isCurrentLoad()) return;
 
-      setMessages(restored);
+        const kindToRole = (kind: string): ChatMessage["role"] => {
+          switch (kind) {
+            case "user":
+            case "assistant":
+            case "thought":
+            case "tool":
+            case "plan":
+            case "subagent":
+            case "system":
+              return kind;
+            default:
+              return "system";
+          }
+        };
+
+        const restored: ChatMessage[] = transcript
+          .filter((row) => {
+            const text = String(row.content || "").trim();
+            // 双保险：transcript 侧已过滤，这里再挡一层历史/边界数据
+            if (!text && row.kind !== "tool") return false;
+            if (
+              text.startsWith("<system-reminder>") ||
+              text.includes("<system-reminder>")
+            ) {
+              return false;
+            }
+            if (text.startsWith("<user_info>") || text.includes("<user_info>")) {
+              return false;
+            }
+            return true;
+          })
+          .map((row) => ({
+            id: row.id || uid(),
+            role: kindToRole(row.kind),
+            content: row.content || "",
+            toolName: row.title,
+            status: row.status,
+            createdAt: row.timestamp
+              ? new Date(
+                  row.timestamp > 1e12 ? row.timestamp : row.timestamp * 1000,
+                ).toISOString()
+              : new Date().toISOString(),
+            collapsed: row.kind === "thought",
+            meta: (row as { meta?: ChatMessage["meta"] }).meta,
+          }));
+
+        transcriptCacheRef.current[cacheKey] = restored;
+        setMessages(restored);
+      }
 
       // fork 且尚未消耗 seed：恢复分支上下文，供下次发送注入
       try {
         const snap = await window.grokDesktop.sessions.readSnapshot(
           s.id,
-          s.cwd || proj.path,
+          sessionCwd,
         );
+        if (!isCurrentLoad()) return;
         if (snap?.kind === "fork" && snap.seed && !snap.seedConsumed) {
           forkContextSeedRef.current = snap.seed;
         }
@@ -1011,7 +1137,7 @@ export default function App() {
         ),
       ]);
     } finally {
-      setSessionLoading(false);
+      if (isCurrentLoad()) setSessionLoading(false);
     }
   }
 
@@ -2105,6 +2231,7 @@ export default function App() {
     streamingIdRef.current = null;
     thoughtIdRef.current = null;
     continueRef.current = true;
+    clearTranscriptCache(acpSessionIdRef.current || headlessSessionIdRef.current);
     if (projectPathRef.current) {
       void loadSessionsForProject(projectPathRef.current, { force: true });
     }
@@ -2782,7 +2909,14 @@ export default function App() {
   ]);
 
   return (
-    <div className={themeLight ? "app layout-codex light" : "app layout-codex dark"}>
+    <div
+      className={cn(
+        "app layout-codex",
+        themeLight ? "light" : "dark",
+        sidebarCollapsed && "sidebar-collapsed",
+      )}
+      style={{ "--sidebar-w": `${sidebarWidth}px` } as CSSProperties}
+    >
       <header className="titlebar titlebar-codex">
         <div className="titlebar-brand">
           <div className="brand-text">
@@ -2792,6 +2926,27 @@ export default function App() {
         </div>
 
         <div className="titlebar-chat">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="sidebar-toggle titlebar-no-drag"
+            aria-controls="project-sidebar"
+            aria-expanded={!sidebarCollapsed}
+            aria-label={
+              sidebarCollapsed
+                ? t("app.expandSidebar")
+                : t("app.collapseSidebar")
+            }
+            title={
+              sidebarCollapsed
+                ? t("app.expandSidebar")
+                : t("app.collapseSidebar")
+            }
+            onClick={() => setSidebarCollapsed((value) => !value)}
+          >
+            <HamburgerMenuIcon />
+          </Button>
           {isGlobalFeaturePage ? (
             <div className="title-block">
               <h2>{featurePageTitle}</h2>
@@ -2948,51 +3103,74 @@ export default function App() {
       </header>
 
       <div className="body body-codex">
-        <ProjectTree
-          projects={projects}
-          sessionsByProject={sessionsByProject}
-          expanded={expandedProjects}
-          activeProjectPath={project?.path || null}
-          activeSessionId={session?.id || null}
-          loadingPath={loadingSessionsPath}
-          loadingSessionId={sessionLoading ? session?.id || null : null}
-          onToggleProject={(p) => void toggleProject(p)}
-          onSelectSession={(p, s) => {
-            setGlobalPage(null);
-            void loadSession(s, p);
-          }}
-          onDeleteSession={(p, s) => void deleteSession(p, s)}
-          onOpenFolder={() => void openProjectPicker()}
-          onRefresh={() => {
-            void refreshProjects();
-            if (project) void loadSessionsForProject(project.path, { force: true });
-          }}
-          onNewChat={() => {
-            setGlobalPage(null);
-            void createNewChat();
-          }}
-          onNewChatInProject={(p) => {
-            setGlobalPage(null);
-            void createNewChat(p);
-          }}
-          onPinProject={(p, pinned) => void pinProject(p, pinned)}
-          onRemoveProject={(p) => void removeProjectFromList(p)}
-          onRevealInFinder={(p) => void revealProjectInFinder(p)}
-          onOpenGlobalPage={(tab) => openGlobalPage(tab)}
-          onOpenPlugins={() => {
-            setGlobalPage(null);
-            setPluginsPageOpen(true);
-          }}
-          onOpenSearch={() => setPaletteOpen(true)}
-          onOpenSessionInspector={(proj, s, tab) =>
-            openSessionInspector(s, tab || "context", proj)
-          }
-          onOpenSettings={() => setSettingsOpen(true)}
-          themeLight={themeLight}
-          onToggleTheme={() => setThemeLight((v) => !v)}
-        />
+        <div
+          id="project-sidebar"
+          className="sidebar-shell"
+          aria-hidden={sidebarCollapsed || undefined}
+          inert={sidebarCollapsed || undefined}
+        >
+          <ProjectTree
+            projects={projects}
+            sessionsByProject={sessionsByProject}
+            expanded={expandedProjects}
+            activeProjectPath={project?.path || null}
+            activeSessionId={session?.id || null}
+            loadingPath={loadingSessionsPath}
+            loadingSessionId={sessionLoading ? session?.id || null : null}
+            onToggleProject={(p) => void toggleProject(p)}
+            onSelectSession={(p, s) => {
+              setGlobalPage(null);
+              void loadSession(s, p);
+            }}
+            onDeleteSession={(p, s) => void deleteSession(p, s)}
+            onOpenFolder={() => void openProjectPicker()}
+            onRefresh={() => {
+              void refreshProjects();
+              if (project)
+                void loadSessionsForProject(project.path, { force: true });
+            }}
+            onNewChat={() => {
+              setGlobalPage(null);
+              void createNewChat();
+            }}
+            onNewChatInProject={(p) => {
+              setGlobalPage(null);
+              void createNewChat(p);
+            }}
+            onPinProject={(p, pinned) => void pinProject(p, pinned)}
+            onRemoveProject={(p) => void removeProjectFromList(p)}
+            onRevealInFinder={(p) => void revealProjectInFinder(p)}
+            onOpenGlobalPage={(tab) => openGlobalPage(tab)}
+            onOpenPlugins={() => {
+              setGlobalPage(null);
+              setPluginsPageOpen(true);
+            }}
+            onOpenSearch={() => setPaletteOpen(true)}
+            onOpenSessionInspector={(proj, s, tab) =>
+              openSessionInspector(s, tab || "context", proj)
+            }
+            onOpenSettings={() => setSettingsOpen(true)}
+            themeLight={themeLight}
+            onToggleTheme={() => setThemeLight((v) => !v)}
+          />
+        </div>
 
-        <section className="chat">
+        {!sidebarCollapsed ? (
+          <div
+            className="sidebar-resize-handle"
+            role="separator"
+            tabIndex={0}
+            aria-label={t("app.resizeSidebar")}
+            aria-orientation="vertical"
+            aria-valuemin={SIDEBAR_MIN_WIDTH}
+            aria-valuemax={SIDEBAR_MAX_WIDTH}
+            aria-valuenow={sidebarWidth}
+            onPointerDown={startSidebarResize}
+            onKeyDown={resizeSidebarWithKeyboard}
+          />
+        ) : null}
+
+        <main className="chat">
           {pluginsPageOpen ? (
             <PluginsPage onToolbar={setPluginsToolbar} />
           ) : globalPage ? (
@@ -3192,7 +3370,7 @@ export default function App() {
                       );
                     }}
                   >
-                    <PlusIcon className="size-3.5" />
+                    <UploadIcon className="size-3.5" />
                   </Button>
                   <button
                     type="button"
@@ -3326,7 +3504,7 @@ export default function App() {
             </div>
           </div>
           ) : null}
-        </section>
+        </main>
       </div>
 
       {permission ? (

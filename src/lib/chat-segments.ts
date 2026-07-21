@@ -144,6 +144,7 @@ export function buildSegments(
     }
 
     if (!process.length && !edits.length && !results.length) return;
+    if (!sessionBusy && results.length === 0) return;
 
     if (
       process.some(

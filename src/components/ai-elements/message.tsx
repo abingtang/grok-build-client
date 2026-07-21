@@ -15,7 +15,7 @@ import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import type { UIMessage } from "ai";
-import type { ComponentProps, HTMLAttributes } from "react";
+import { memo, type ComponentProps, type HTMLAttributes } from "react";
 import { harden } from "rehype-harden";
 import {
   Streamdown,
@@ -130,7 +130,7 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown> & {
 };
 
 /** Streamdown-powered markdown (AI Elements Message response). */
-export const MessageResponse = ({
+const MessageResponseBase = ({
   className,
   isAnimating,
   components,
@@ -152,4 +152,14 @@ export const MessageResponse = ({
     components={{ ...chatMarkdownComponents, ...components }}
     {...props}
   />
+);
+
+export const MessageResponse = memo(
+  MessageResponseBase,
+  (prev, next) =>
+    prev.children === next.children &&
+    prev.isAnimating === next.isAnimating &&
+    prev.className === next.className &&
+    prev.components === next.components &&
+    prev.rehypePlugins === next.rehypePlugins,
 );
