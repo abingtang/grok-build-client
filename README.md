@@ -1,6 +1,6 @@
 <div align="center">
 
-# Grok Build Desktop
+# grok-build-client
 
 ### Unofficial macOS and Windows desktop client for the official [Grok Build CLI](https://x.ai/cli)
 
@@ -17,11 +17,19 @@ Gives the `grok` CLI a real window: project switcher, session history, streaming
 
 ---
 
+## Screenshots / 项目截图
+
+![Dark mode chat view](docs/screenshots/dark-mode.jpg)
+
+![Light mode chat view](docs/screenshots/light-mode.png)
+
+---
+
 ## English
 
 ### Overview
 
-**Grok Build Desktop** wraps the official **Grok Build CLI** in an Electron + React shell. It is **not** affiliated with xAI / Grok.
+**grok-build-client** wraps the official **Grok Build CLI** in an Electron + React shell. It is **not** affiliated with xAI / Grok.
 
 - Talks to the real local `grok` binary (you install and log in yourself)
 - **Does not** host model APIs
@@ -87,7 +95,7 @@ npm run electron:dev
 **Package → `release/`:**
 
 ```bash
-# macOS app directory
+# macOS DMG installer
 npm run pack:mac
 
 # Windows x64 NSIS installer (run on Windows)
@@ -110,7 +118,7 @@ npm run typecheck
 | `npm run build` | Build renderer + main process |
 | `npm run typecheck` | Full TypeScript check |
 | `npm start` | Run Electron against an existing build |
-| `npm run pack:mac` | Production build + electron-builder (`dir` target) |
+| `npm run pack:mac` | Production build + macOS DMG installer |
 | `npm run pack:win` | Production build + Windows x64 NSIS installer |
 | `npm run test:windows` | Verify Windows Grok executable resolution |
 
@@ -152,7 +160,7 @@ npm run typecheck
 ### Project layout
 
 ```text
-grok-build-desktop/
+grok-build-client/
 ├── electron/           # Main process (ACP, IPC, CLI services)
 ├── src/                # Renderer (React UI + i18n)
 ├── scripts/            # Cross-platform development launcher
@@ -200,7 +208,7 @@ grok-build-desktop/
 
 ### 简介
 
-**Grok Build Desktop** 是非官方 **macOS / Windows** 桌面客户端，用 **Electron + React** 包装官方 [Grok Build CLI](https://x.ai/cli)。与 xAI / Grok **无关联**。
+**grok-build-client** 是非官方 **macOS / Windows** 桌面客户端，用 **Electron + React** 包装官方 [Grok Build CLI](https://x.ai/cli)。与 xAI / Grok **无关联**。
 
 - 依赖本机已安装并 `grok login` 的 `grok` 二进制  
 - **不**托管模型 API  
@@ -266,7 +274,7 @@ npm run electron:dev
 **打包（产物在 `release/`）：**
 
 ```bash
-# macOS 应用目录
+# macOS DMG 安装包
 npm run pack:mac
 
 # Windows x64 NSIS 安装程序（请在 Windows 上运行）
@@ -289,7 +297,7 @@ npm run typecheck
 | `npm run build` | 构建前端 + 主进程 |
 | `npm run typecheck` | 全量 TypeScript 检查 |
 | `npm start` | 用已有构建启动 Electron |
-| `npm run pack:mac` | 生产构建 + macOS 应用目录 |
+| `npm run pack:mac` | 生产构建 + macOS DMG 安装包 |
 | `npm run pack:win` | 生产构建 + Windows x64 NSIS 安装程序 |
 | `npm run test:windows` | 验证 Windows Grok 可执行文件解析 |
 
@@ -317,7 +325,7 @@ npm run typecheck
 ### 项目结构
 
 ```text
-grok-build-desktop/
+grok-build-client/
 ├── electron/           # 主进程（ACP、IPC、CLI 服务）
 ├── src/                # 渲染进程（React UI + 国际化）
 ├── scripts/            # 跨平台开发启动器
