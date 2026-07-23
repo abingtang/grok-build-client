@@ -144,7 +144,10 @@ export function buildSegments(
     }
 
     if (!process.length && !edits.length && !results.length) return;
-    if (!sessionBusy && results.length === 0) return;
+
+    // 注意：打断时可能只有 process/edits、尚无 assistant 正文。
+    // 旧逻辑在 !sessionBusy && results.length===0 时整轮丢弃，会导致上下文「消失/乱掉」。
+    // 未在跑时一律不当 live，但保留已产生的工具/思考/编辑记录。
 
     if (
       process.some(
@@ -166,7 +169,7 @@ export function buildSegments(
       live = true;
     }
 
-    // 会话未在跑：历史 turn 一律视为已结束
+    // 会话未在跑：历史 turn 一律视为已结束（含打断后残留的 running 状态）
     if (!sessionBusy) live = false;
 
     const thoughts = process.filter((m) => m.role === "thought");

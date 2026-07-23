@@ -31,13 +31,16 @@ const zh: MessageTree = {
     general: "常规",
     modelDesc: "当前会话使用的 Grok 模型",
     effort: "思考深度",
-    effortDesc: "对应 CLI --effort：越高思考越充分，也更耗时",
+    effortDesc:
+      "对应 CLI --reasoning-effort（--effort 别名）：none/minimal/low/medium/high/xhigh/max",
     reasoning: "深度推理",
-    reasoningDesc: "对应 --reasoning-effort，关闭则不启用额外推理",
+    reasoningDesc:
+      "对应 --reasoning-effort；与思考深度共用同一 CLI 字段，关闭则使用思考深度",
     permissionMode: "权限模式",
     permissionModeDesc: "工具调用审批策略（始终批准开启时忽略此项）",
     bestOfN: "Best-of-N",
-    bestOfNDesc: "并行候选数量（--best-of-n）",
+    bestOfNDesc:
+      "已从 CLI 移除 --best-of-n；请用技能 /best-of-n（不再作为启动参数）",
     alwaysApprove: "自动批准",
     alwaysApproveDesc: "自动批准工具调用，不再逐次弹窗（--always-approve）",
     webSearch: "Web 搜索",
@@ -47,7 +50,8 @@ const zh: MessageTree = {
     memory: "实验性记忆",
     memoryDesc: "跨回合记忆（--experimental-memory）",
     selfCheck: "自验证",
-    selfCheckDesc: "回合后自动检查（--check）",
+    selfCheckDesc:
+      "已从 CLI 移除 --check；请用技能 /check（不再作为启动参数）",
     maxTurns: "最大回合数",
     maxTurnsDesc: "对应 CLI --max-turns（官方无上限默认；桌面默认 48）",
     noPlan: "禁用 Plan",
@@ -132,6 +136,13 @@ const zh: MessageTree = {
     placeholderBusy: "生成中… Enter 将消息加入队列 · Esc 停止 · Shift+Enter 换行",
     placeholderReady:
       "给 Grok 发消息… 粘贴/上传图片 · @ 引用文件 · / 命令 · Enter 发送",
+    renameSession: "重命名",
+    renameSessionTitle: "修改会话名称",
+    renameSessionLabel: "会话名称",
+    renameSessionPlaceholder: "输入新的会话名称",
+    renameEmpty: "名称不能为空",
+    renameFailed: "重命名失败",
+    renaming: "保存中…",
   },
 
   palette: {
@@ -200,6 +211,7 @@ const zh: MessageTree = {
     remove: "从列表移除",
     deleteSession: "删除会话",
     deleteChildSession: "删除子会话",
+    renameSession: "重命名会话",
     collapseChildren: "收起子会话",
     expandChildren: "展开子会话",
     childrenCount: "{n} 个子会话",
@@ -220,18 +232,7 @@ const zh: MessageTree = {
   },
 
   newSession: {
-    optionsTitle: "新建会话选项",
-    worktree: "Git Worktree",
-    worktreeDesc: "在独立 worktree 中运行本会话（对齐 CLI --worktree）",
-    worktreeLabel: "Worktree 名称（可选）",
-    worktreeLabelPh: "例如 feat-ui",
-    forkSession: "Fork 当前会话",
-    forkSessionDesc: "从当前会话复制历史到新会话（对齐 --fork-session / x.ai/session/fork）",
-    forkSessionNeedParent: "需要先有一个当前会话才能 fork",
-    worktreeCreated: "已创建 worktree：{path}",
-    worktreeFailed: "创建 worktree 失败：{msg}",
     forked: "已 fork 为新会话 {sid}",
-    forkFailed: "Fork 失败：{msg}，将创建普通新会话",
   },
 
   plugins: {
@@ -307,6 +308,10 @@ const zh: MessageTree = {
     turnNavLive: "进行中",
     generating: "Grok 正在生成…",
     forkFromHere: "从此分叉",
+    retry: "重试",
+    retryTitle: "重新发送该条消息并生成回复",
+    editMessage: "编辑",
+    editMessageTitle: "编辑后重新发送",
     skill: "技能",
     tool: "工具",
     plan: "计划",
@@ -356,6 +361,9 @@ const zh: MessageTree = {
     selectProjectFirst: "请先选择项目目录。",
     needSessionForInspector: "请先选择或创建会话，再查看会话详情。",
     waitBeforeFork: "请等待当前回合结束后再 fork。",
+    waitBeforeRetry: "请等待当前回合结束后再重试。",
+    waitBeforeEdit: "请等待当前回合结束后再编辑。",
+    noRetryTarget: "没有可重试的用户消息。",
     noForkContext: "该消息之前没有可 fork 的对话上下文。",
     forkedContinue:
       "已在新任务中继续（fork）\n会话 {sid}\n上下文已保留到所选消息；下一条发送会带上分支上下文。",

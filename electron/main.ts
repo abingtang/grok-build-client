@@ -33,6 +33,7 @@ import {
 import { getGrokHome, grokSpawnEnv, resolveGrokBinary } from "./env";
 import { HeadlessRunner } from "./services/headless-run";
 import {
+  grokDoctor,
   grokExportSession,
   grokInspect,
   grokInspectJson,
@@ -53,11 +54,14 @@ import {
   mcpDoctor,
 } from "./services/mcp-cli";
 import {
+  addMarketplaceSource,
   disablePlugin,
   enablePlugin,
   installPlugin,
+  listMarketplaces,
   listPluginsDetailed,
   pluginDetails,
+  removeMarketplaceSource,
   uninstallPlugin,
   updatePlugins,
 } from "./services/plugins-cli";
@@ -298,7 +302,12 @@ function registerIpc(): void {
     "acp:start",
     async (
       _e,
-      options?: { cwd?: string; model?: string; alwaysApprove?: boolean },
+      options?: {
+        cwd?: string;
+        model?: string;
+        alwaysApprove?: boolean;
+        reasoningEffort?: string | null;
+      },
     ) => {
       try {
         return await acp.start(options);
@@ -447,6 +456,22 @@ function registerIpc(): void {
   );
   ipcMain.handle("plugins:update", async (_e, name?: string | null) =>
     updatePlugins(name),
+  );
+  ipcMain.handle("plugins:marketplaceList", async () => listMarketplaces());
+  ipcMain.handle(
+    "plugins:marketplaceAdd",
+    async (_e, source: string) => addMarketplaceSource(source),
+  );
+  ipcMain.handle(
+    "plugins:marketplaceRemove",
+    async (_e, sourceOrName: string) => removeMarketplaceSource(sourceOrName),
+  );
+  ipcMain.handle(
+    "grok:doctor",
+    async (
+      _e,
+      options?: { json?: boolean; fix?: string | null; cwd?: string | null },
+    ) => grokDoctor(options),
   );
   ipcMain.handle(
     "worktree:create",
@@ -1294,19 +1319,96 @@ async function executeSlash(
       };
     }
 
+    case "doctor":
     case "terminal-setup":
     case "terminal-check":
-    case "terminal-info":
+    case "terminal-info": {
+      const fixArg = parsed.args?.trim() || "";
+      const isFix = fixArg === "fix" || fixArg.startsWith("fix ");
+      try {
+        if (isFix) {
+          const fixName = fixArg === "fix" ? "" : fixArg.slice(4).trim();
+          if (!fixName || fixName === "fix") {
+            const report = await grokDoctor({
+              json: true,
+              cwd: context.projectPath,
+            });
+            return {
+              handled: true,
+              action: "open-panel",
+              openPanel: "docs",
+              message:
+                "运行 `/doctor fix <name>` 应用自动修复。\n\n" +
+                (report.raw || "无 doctor 输出"),
+              data: report.raw,
+            };
+          }
+          const fixed = await grokDoctor({
+            fix: fixName,
+            cwd: context.projectPath,
+          });
+          return {
+            handled: true,
+            action: "open-panel",
+            openPanel: "docs",
+            message: fixed.raw || (fixed.ok ? "fix applied" : "fix failed"),
+            data: fixed.raw,
+          };
+        }
+        const report = await grokDoctor({
+          json: true,
+          cwd: context.projectPath,
+        });
+        let body = report.raw || "doctor produced no output";
+        if (report.data && typeof report.data === "object") {
+          try {
+            body = JSON.stringify(report.data, null, 2);
+          } catch {
+            /* keep raw */
+          }
+        }
+        const desktopNote = [
+          "— Desktop environment —",
+          `platform: ${process.platform}`,
+          `grok: ${resolveGrokBinary()}`,
+          `GROK_HOME: ${getGrokHome()}`,
+          "Note: Desktop UI does not depend on terminal keyboard/clipboard probes;",
+          "doctor still reports CLI/config/sandbox findings useful for agent runs.",
+        ].join("\n");
+        return {
+          handled: true,
+          action: "open-panel",
+          openPanel: "docs",
+          message: `${body}\n\n${desktopNote}`,
+          data: body,
+        };
+      } catch (error) {
+        return {
+          handled: true,
+          action: "error",
+          message: `doctor 失败：${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    }
+
+    case "help":
+      return {
+        handled: true,
+        action: "open-panel",
+        openPanel: "docs",
+        message: buildDocsPanelBody(""),
+        data: buildDocsPanelBody(""),
+      };
+
+    case "vim-mode":
+    case "minimal":
+    case "fullscreen":
       return {
         handled: true,
         action: "system-message",
-        message: [
-          "Grok Build Desktop 使用图形界面，不依赖终端能力。",
-          `平台: ${process.platform}`,
-          `Grok: ${resolveGrokBinary()}`,
-          `GROK_HOME: ${getGrokHome()}`,
-          "完整终端检测请在终端运行: grok（TUI）后执行 /terminal-setup",
-        ].join("\n"),
+        message:
+          cmd.note ||
+          `/${cmd.name} 仅适用于 Grok TUI，桌面客户端无此渲染模式。`,
       };
 
     case "login": {

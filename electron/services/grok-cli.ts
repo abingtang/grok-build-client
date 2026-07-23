@@ -123,3 +123,38 @@ export async function grokWorktreeList(
   );
   return (plain.stdout || plain.stderr || "").trim() || "(no worktrees)";
 }
+
+/**
+ * `grok doctor` — terminal / config diagnostics.
+ * Prefer `--json` for machine-readable output; fall back to human text.
+ */
+export async function grokDoctor(options?: {
+  json?: boolean;
+  /** `grok doctor fix <name>` */
+  fix?: string | null;
+  cwd?: string | null;
+}): Promise<{ ok: boolean; raw: string; data: unknown | null }> {
+  const cwd = options?.cwd || undefined;
+  if (options?.fix?.trim()) {
+    const r = await runGrok(
+      ["doctor", "fix", options.fix.trim()],
+      cwd,
+      90_000,
+    );
+    const raw = (r.stdout || r.stderr || "").trim();
+    return { ok: r.code === 0, raw, data: null };
+  }
+  if (options?.json !== false) {
+    const r = await runGrok(["doctor", "--json"], cwd, 60_000);
+    const raw = (r.stdout || r.stderr || "").trim();
+    try {
+      return { ok: r.code === 0, raw, data: JSON.parse(raw) };
+    } catch {
+      /* fall through to plain */
+    }
+    if (raw) return { ok: r.code === 0, raw, data: null };
+  }
+  const plain = await runGrok(["doctor"], cwd, 60_000);
+  const raw = (plain.stdout || plain.stderr || "").trim();
+  return { ok: plain.code === 0, raw: raw || "doctor produced no output", data: null };
+}

@@ -88,6 +88,7 @@ import {
   FileIcon,
   GitForkIcon,
   PencilIcon,
+  RefreshCwIcon,
   TerminalIcon,
   WrenchIcon,
 } from "lucide-react";
@@ -147,6 +148,14 @@ interface Props {
   streamStatus?: { phase: string; elapsedMs: number } | null;
   onForkMessage?: (messageId: string) => void;
   forkDisabled?: boolean;
+  /** 将用户消息填入输入框并截断后续（编辑后重发） */
+  onEditUserMessage?: (messageId: string) => void;
+  /** 保留用户消息，去掉其后回复并重跑 */
+  onRetryUserMessage?: (messageId: string) => void;
+  /** 对最后一条用户消息重试 */
+  onRetryLastTurn?: () => void;
+  /** 编辑 / 重试 / 分叉等操作禁用（忙碌或无项目） */
+  actionsDisabled?: boolean;
   onStop?: () => void;
   /** Directories for resolving relative chat images (project cwd, session dir). */
   mediaBaseDirs?: string[];
@@ -1469,13 +1478,17 @@ function ProcessPanel({
 function AssistantResult({
   m,
   onFork,
-  forkDisabled,
+  onRetry,
+  actionsDisabled,
   showFork,
+  showRetry,
 }: {
   m: ChatMessage;
   onFork?: (id: string) => void;
-  forkDisabled?: boolean;
+  onRetry?: () => void;
+  actionsDisabled?: boolean;
   showFork?: boolean;
+  showRetry?: boolean;
 }) {
   const copy = useCallback(() => {
     if (!m.content) return;
@@ -1514,11 +1527,21 @@ function AssistantResult({
           >
             <CopyIcon className="size-3.5" />
           </MessageAction>
+          {showRetry && onRetry ? (
+            <MessageAction
+              tooltip={rt("chat.retryTitle")}
+              label={rt("chat.retry")}
+              disabled={actionsDisabled}
+              onClick={onRetry}
+            >
+              <RefreshCwIcon className="size-3.5" />
+            </MessageAction>
+          ) : null}
           {showFork && onFork ? (
             <MessageAction
               tooltip={rt("chat.forkFromHere")}
               label={rt("common.fork")}
-              disabled={forkDisabled}
+              disabled={actionsDisabled}
               onClick={() => onFork(m.id)}
             >
               <GitForkIcon className="size-3.5" />
@@ -1534,14 +1557,16 @@ function AgentTurnView({
   turn,
   liveElapsedMs,
   onForkMessage,
-  forkDisabled,
+  onRetryLastTurn,
+  actionsDisabled,
   isLastTurn,
   onPreview,
 }: {
   turn: AgentTurn;
   liveElapsedMs?: number;
   onForkMessage?: (id: string) => void;
-  forkDisabled?: boolean;
+  onRetryLastTurn?: () => void;
+  actionsDisabled?: boolean;
   isLastTurn?: boolean;
   onPreview?: PreviewHandler;
 }) {
@@ -1574,8 +1599,10 @@ function AgentTurnView({
         <AssistantResult
           m={finalResult}
           onFork={onForkMessage}
-          forkDisabled={forkDisabled}
+          onRetry={onRetryLastTurn}
+          actionsDisabled={actionsDisabled}
           showFork={isLastTurn}
+          showRetry={isLastTurn && !turn.live}
         />
       ) : null}
 
@@ -1610,31 +1637,66 @@ function TranscriptSegment({
   seg,
   streamStatus,
   onForkMessage,
-  forkDisabled,
+  onEditUserMessage,
+  onRetryUserMessage,
+  onRetryLastTurn,
+  actionsDisabled,
+  lastUserMessageId,
   lastAgentTurnId,
   onPreview,
 }: {
   seg: Segment;
   streamStatus?: { phase: string; elapsedMs: number } | null;
   onForkMessage?: (id: string) => void;
-  forkDisabled?: boolean;
+  onEditUserMessage?: (id: string) => void;
+  onRetryUserMessage?: (id: string) => void;
+  onRetryLastTurn?: () => void;
+  actionsDisabled?: boolean;
+  lastUserMessageId?: string | null;
   lastAgentTurnId?: string;
   onPreview: (state: FilePreviewState) => void;
 }) {
   if (seg.type === "user") {
     const m = seg.message;
+    const isLastUser = lastUserMessageId === m.id;
     return (
       <div data-turn-id={m.id} className="turn-anchor scroll-mt-3">
-        <Message from="user">
-          <MessageContent>
-            {m.content ? (
-              <div className="chat-msg-body whitespace-pre-wrap">
-                {m.content}
-              </div>
-            ) : null}
-            <AttachmentStrip items={m.attachments} />
-          </MessageContent>
-        </Message>
+        <div className="group/msg flex w-full flex-col gap-1">
+          <Message from="user">
+            <MessageContent>
+              {m.content ? (
+                <div className="chat-msg-body whitespace-pre-wrap">
+                  {m.content}
+                </div>
+              ) : null}
+              <AttachmentStrip items={m.attachments} />
+            </MessageContent>
+          </Message>
+          {isLastUser && !streamStatus ? (
+            <MessageActions className="ml-auto opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
+              {onEditUserMessage ? (
+                <MessageAction
+                  tooltip={rt("chat.editMessageTitle")}
+                  label={rt("chat.editMessage")}
+                  disabled={actionsDisabled}
+                  onClick={() => onEditUserMessage(m.id)}
+                >
+                  <PencilIcon className="size-3.5" />
+                </MessageAction>
+              ) : null}
+              {onRetryUserMessage ? (
+                <MessageAction
+                  tooltip={rt("chat.retryTitle")}
+                  label={rt("chat.retry")}
+                  disabled={actionsDisabled}
+                  onClick={() => onRetryUserMessage(m.id)}
+                >
+                  <RefreshCwIcon className="size-3.5" />
+                </MessageAction>
+              ) : null}
+            </MessageActions>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -1657,7 +1719,8 @@ function TranscriptSegment({
         turn={seg}
         liveElapsedMs={seg.live ? streamStatus?.elapsedMs : undefined}
         onForkMessage={onForkMessage}
-        forkDisabled={forkDisabled}
+        onRetryLastTurn={onRetryLastTurn}
+        actionsDisabled={actionsDisabled}
         isLastTurn={seg.id === lastAgentTurnId}
         onPreview={onPreview}
       />
@@ -1672,7 +1735,11 @@ function VirtualizedTranscript({
   elapsedSec,
   streamStatus,
   onForkMessage,
-  forkDisabled,
+  onEditUserMessage,
+  onRetryUserMessage,
+  onRetryLastTurn,
+  actionsDisabled,
+  lastUserMessageId,
   onPreview,
 }: {
   segments: Segment[];
@@ -1681,7 +1748,11 @@ function VirtualizedTranscript({
   elapsedSec: number;
   streamStatus?: { phase: string; elapsedMs: number } | null;
   onForkMessage?: (id: string) => void;
-  forkDisabled?: boolean;
+  onEditUserMessage?: (id: string) => void;
+  onRetryUserMessage?: (id: string) => void;
+  onRetryLastTurn?: () => void;
+  actionsDisabled?: boolean;
+  lastUserMessageId?: string | null;
   onPreview: (state: FilePreviewState) => void;
 }) {
   const { scrollRef, stopScroll } = useStickToBottomContext();
@@ -1790,7 +1861,11 @@ function VirtualizedTranscript({
                   seg={seg}
                   streamStatus={streamStatus}
                   onForkMessage={onForkMessage}
-                  forkDisabled={forkDisabled}
+                  onEditUserMessage={onEditUserMessage}
+                  onRetryUserMessage={onRetryUserMessage}
+                  onRetryLastTurn={onRetryLastTurn}
+                  actionsDisabled={actionsDisabled}
+                  lastUserMessageId={lastUserMessageId}
                   lastAgentTurnId={lastAgentTurnId}
                   onPreview={onPreview}
                 />
@@ -1817,6 +1892,10 @@ export function AiMessageList({
   streamStatus,
   onForkMessage,
   forkDisabled,
+  onEditUserMessage,
+  onRetryUserMessage,
+  onRetryLastTurn,
+  actionsDisabled,
   mediaBaseDirs = [],
 }: Props) {
   const { t } = useI18n();
@@ -1831,6 +1910,13 @@ export function AiMessageList({
     () => mediaBaseDirs.filter(Boolean),
     [mediaBaseDirs.join("\0")],
   );
+  const lastUserMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") return messages[i].id;
+    }
+    return null;
+  }, [messages]);
+  const actionLocked = actionsDisabled ?? forkDisabled;
 
   const tick = useMemo(
     () =>
@@ -1883,7 +1969,11 @@ export function AiMessageList({
           elapsedSec={elapsedSec}
           streamStatus={streamStatus}
           onForkMessage={onForkMessage}
-          forkDisabled={forkDisabled}
+          onEditUserMessage={onEditUserMessage}
+          onRetryUserMessage={onRetryUserMessage}
+          onRetryLastTurn={onRetryLastTurn}
+          actionsDisabled={actionLocked}
+          lastUserMessageId={lastUserMessageId}
           onPreview={handlePreview}
         />
       </Conversation>

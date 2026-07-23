@@ -16,7 +16,8 @@
 主运行时：`grok agent stdio`（ACP 长会话）  
 兜底：`grok -p … --output-format streaming-json`
 
-**CLI 参数**（headless）：见 `src/lib/grokArgs.ts`（含 `--max-turns`、`--sandbox`、`--no-plan`、`--no-memory`、worktree/fork 等）。
+**CLI 参数**（headless）：见 `src/lib/grokArgs.ts`（含 `--max-turns`、`--sandbox`、`--no-plan`、`--no-memory`、worktree/fork、`--tools`/`--disallowed-tools`、`--allow`/`--deny` 等）。  
+注意：官方已移除 `--best-of-n` / agent 侧 `--check`；Best-of-N 与自检改为技能 `/best-of-n`、`/check`。`--effort` 是 `--reasoning-effort` 的别名，canonical 档位含 `max`。
 
 本地 **CodeGraph**（`.codegraph/`）是给编码代理用的开发期工具，**不**做成产品 UI；改本仓库时可用 `codegraph` CLI / MCP，勿往桌面端加 CodeGraph 界面。
 

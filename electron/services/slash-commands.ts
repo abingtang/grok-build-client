@@ -63,7 +63,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     name: "session-info",
-    description: "显示会话详情（模型、轮次、上下文）",
+    aliases: ["status", "info"],
+    description: "显示会话详情（认证方式、模型、轮次、上下文）",
     category: "session",
     kind: "client",
   },
@@ -118,10 +119,23 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     name: "dashboard",
-    aliases: ["sessions"],
+    aliases: ["sessions", "agents-dashboard"],
     description: "打开活跃会话面板（切换/重命名/关闭）",
     category: "session",
     kind: "client",
+  },
+  {
+    name: "recap",
+    aliases: ["summarize"],
+    description: "生成当前会话的摘要回顾",
+    category: "session",
+    kind: "prompt",
+  },
+  {
+    name: "share",
+    description: "分享当前会话（若 CLI/后端支持）",
+    category: "session",
+    kind: "prompt",
   },
 
   // Model and Mode
@@ -136,7 +150,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   {
     name: "effort",
     description: "设置当前模型的推理力度",
-    argumentHint: "<low|medium|high|xhigh>",
+    argumentHint: "<none|minimal|low|medium|high|xhigh|max>",
     argsRequired: true,
     category: "model",
     kind: "hybrid",
@@ -185,6 +199,28 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     description: "查看当前保存的计划",
     category: "model",
     kind: "prompt",
+  },
+  {
+    name: "vim-mode",
+    description: "切换 vim 风格滚动键（TUI 设置；桌面忽略）",
+    category: "config",
+    kind: "client",
+    note: "仅 TUI 有效；桌面客户端无此交互模式",
+  },
+  {
+    name: "minimal",
+    description: "以 minimal 渲染模式重开当前会话（TUI）",
+    category: "config",
+    kind: "client",
+    note: "仅 TUI 有效",
+  },
+  {
+    name: "fullscreen",
+    aliases: ["full"],
+    description: "以 fullscreen 渲染模式重开当前会话（TUI）",
+    category: "config",
+    kind: "client",
+    note: "仅 TUI 有效",
   },
 
   // Memory
@@ -274,13 +310,42 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     kind: "prompt",
   },
 
-  // Other
+  // Workflows and Goals
   {
     name: "goal",
     description: "设置/管理自主目标",
     argumentHint: "<objective|status|pause|resume|clear>",
     category: "other",
     kind: "prompt",
+  },
+  {
+    name: "deep-research",
+    description: "启动后台深度研究工作流",
+    argumentHint: "<query>",
+    argsRequired: true,
+    category: "other",
+    kind: "prompt",
+  },
+  {
+    name: "workflow",
+    description: "启动或管理已保存工作流",
+    argumentHint: "<name|pause|resume|stop|save> …",
+    category: "other",
+    kind: "prompt",
+  },
+  {
+    name: "workflows",
+    description: "打开工作流运行仪表盘",
+    category: "other",
+    kind: "prompt",
+  },
+
+  // Other
+  {
+    name: "help",
+    description: "显示帮助 / 命令说明",
+    category: "other",
+    kind: "client",
   },
   {
     name: "theme",
@@ -311,9 +376,16 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     kind: "client",
   },
   {
+    name: "doctor",
+    description: "检查终端、剪贴板、颜色、输入、沙箱等问题（可 /doctor fix）",
+    argumentHint: "[fix]",
+    category: "config",
+    kind: "client",
+  },
+  {
     name: "terminal-setup",
     aliases: ["terminal-check", "terminal-info"],
-    description: "终端能力检测与设置说明",
+    description: "终端能力检测（/doctor 别名）",
     category: "config",
     kind: "client",
   },
@@ -369,7 +441,9 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     name: "usage",
-    description: "查看用量 / 账单",
+    aliases: ["cost"],
+    description: "查看用量 / 账单（含本会话 token 用量）",
+    argumentHint: "[manage]",
     category: "account",
     kind: "prompt",
   },

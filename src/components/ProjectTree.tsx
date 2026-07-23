@@ -29,6 +29,7 @@ import {
   MagicWandIcon,
   MixerHorizontalIcon,
   MoonIcon,
+  Pencil2Icon,
   PlusIcon,
   Share1Icon,
   SunIcon,
@@ -49,6 +50,7 @@ interface Props {
   onToggleProject: (project: ProjectInfo) => void;
   onSelectSession: (project: ProjectInfo, session: SessionSummary) => void;
   onDeleteSession: (project: ProjectInfo | null, session: SessionSummary) => void;
+  onRenameSession?: (project: ProjectInfo, session: SessionSummary) => void;
   onOpenFolder: () => void;
   onRefresh: () => void;
   onNewChat: () => void;
@@ -276,6 +278,7 @@ type SessionTreeBranchProps = {
   onToggleExpand: (id: string) => void;
   onSelectSession: (project: ProjectInfo, session: SessionSummary) => void;
   onDeleteSession: (project: ProjectInfo | null, session: SessionSummary) => void;
+  onRenameSession?: (project: ProjectInfo, session: SessionSummary) => void;
   onConfirmDelete: (id: string | null) => void;
   onOpenSessionInspector?: (
     project: ProjectInfo,
@@ -294,6 +297,7 @@ function SessionTreeBranch({
   onToggleExpand,
   onSelectSession,
   onDeleteSession,
+  onRenameSession,
   onConfirmDelete,
   onOpenSessionInspector,
 }: SessionTreeBranchProps) {
@@ -401,18 +405,34 @@ function SessionTreeBranch({
               </button>
             </span>
           ) : (
-            <button
-              type="button"
-              className="session-del-btn"
-              title={nested ? t("tree.deleteChildSession") : t("tree.deleteSession")}
-              aria-label={nested ? t("tree.deleteChildSession") : t("tree.deleteSession")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onConfirmDelete(s.id);
-              }}
-            >
-              <TrashIcon width={14} height={14} />
-            </button>
+            <>
+              {onRenameSession ? (
+                <button
+                  type="button"
+                  className="session-rename-btn"
+                  title={t("tree.renameSession")}
+                  aria-label={t("tree.renameSession")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRenameSession(project, s);
+                  }}
+                >
+                  <Pencil2Icon width={14} height={14} />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="session-del-btn"
+                title={nested ? t("tree.deleteChildSession") : t("tree.deleteSession")}
+                aria-label={nested ? t("tree.deleteChildSession") : t("tree.deleteSession")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onConfirmDelete(s.id);
+                }}
+              >
+                <TrashIcon width={14} height={14} />
+              </button>
+            </>
           )}
         </span>
       </div>
@@ -432,6 +452,7 @@ function SessionTreeBranch({
               onToggleExpand={onToggleExpand}
               onSelectSession={onSelectSession}
               onDeleteSession={onDeleteSession}
+              onRenameSession={onRenameSession}
               onConfirmDelete={onConfirmDelete}
               onOpenSessionInspector={onOpenSessionInspector}
             />
@@ -455,6 +476,7 @@ export function ProjectTree({
   onToggleProject,
   onSelectSession,
   onDeleteSession,
+  onRenameSession,
   onOpenFolder,
   onRefresh,
   onNewChat,
@@ -722,6 +744,7 @@ export function ProjectTree({
                           onToggleExpand={toggleSessionExpand}
                           onSelectSession={onSelectSession}
                           onDeleteSession={onDeleteSession}
+                          onRenameSession={onRenameSession}
                           onConfirmDelete={setConfirmId}
                           onOpenSessionInspector={onOpenSessionInspector}
                         />

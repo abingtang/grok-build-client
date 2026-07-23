@@ -173,3 +173,46 @@ export async function updatePlugins(
   const { code, out } = await run(args, 300_000);
   return { ok: code === 0, output: out.trim() };
 }
+
+/** `grok plugin marketplace list` (JSON preferred). */
+export async function listMarketplaces(): Promise<{
+  ok: boolean;
+  output: string;
+}> {
+  const { code, out } = await run(
+    ["plugin", "marketplace", "list", "--json"],
+    60_000,
+  );
+  if (out.trim()) return { ok: code === 0, output: out.trim() };
+  const plain = await run(["plugin", "marketplace", "list"], 60_000);
+  return { ok: plain.code === 0, output: plain.out.trim() };
+}
+
+/**
+ * `grok plugin marketplace remove <source>`.
+ * Accepts git URL, local path, or marketplace **name** (CLI resolves by name).
+ */
+export async function removeMarketplaceSource(
+  sourceOrName: string,
+): Promise<{ ok: boolean; output: string }> {
+  const id = sourceOrName.trim();
+  if (!id) return { ok: false, output: "marketplace source required" };
+  const { code, out } = await run(
+    ["plugin", "marketplace", "remove", id],
+    120_000,
+  );
+  return { ok: code === 0, output: out.trim() };
+}
+
+/** `grok plugin marketplace add <source>`. */
+export async function addMarketplaceSource(
+  source: string,
+): Promise<{ ok: boolean; output: string }> {
+  const id = source.trim();
+  if (!id) return { ok: false, output: "marketplace source required" };
+  const { code, out } = await run(
+    ["plugin", "marketplace", "add", id],
+    180_000,
+  );
+  return { ok: code === 0, output: out.trim() };
+}

@@ -61,6 +61,7 @@ const api = {
       cwd?: string;
       model?: string;
       alwaysApprove?: boolean;
+      reasoningEffort?: string | null;
     }) => ipcRenderer.invoke("acp:start", options),
     stop: () => ipcRenderer.invoke("acp:stop"),
     status: () => ipcRenderer.invoke("acp:status"),
@@ -165,6 +166,11 @@ const api = {
       ipcRenderer.invoke("grok:exportSession", sessionId, outputPath),
     worktrees: (projectPath?: string | null) =>
       ipcRenderer.invoke("grok:worktrees", projectPath),
+    doctor: (options?: {
+      json?: boolean;
+      fix?: string | null;
+      cwd?: string | null;
+    }) => ipcRenderer.invoke("grok:doctor", options),
   },
 
   sessionMeta: {
@@ -193,6 +199,11 @@ const api = {
       ipcRenderer.invoke("plugins:details", name),
     pluginsUpdate: (name?: string | null) =>
       ipcRenderer.invoke("plugins:update", name),
+    marketplaceList: () => ipcRenderer.invoke("plugins:marketplaceList"),
+    marketplaceAdd: (source: string) =>
+      ipcRenderer.invoke("plugins:marketplaceAdd", source),
+    marketplaceRemove: (sourceOrName: string) =>
+      ipcRenderer.invoke("plugins:marketplaceRemove", sourceOrName),
     hooksList: (projectPath?: string | null) =>
       ipcRenderer.invoke("hooks:list", projectPath),
     skillsList: (projectPath?: string | null) =>

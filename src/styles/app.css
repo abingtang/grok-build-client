@@ -602,8 +602,57 @@ body.is-resizing-sidebar * {
   color: var(--text-3);
 }
 
-.titlebar-session-detail {
+.titlebar-session-detail,
+.titlebar-session-rename {
   flex-shrink: 0;
+}
+
+.titlebar-session-rename {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.titlebar-session-rename-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.session-rename-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-2);
+}
+
+.session-rename-input {
+  width: 100%;
+  height: 36px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-1);
+  padding: 0 12px;
+  font-size: 13.5px;
+}
+
+.session-rename-input:focus {
+  outline: none;
+  border-color: var(--border-strong, var(--brand));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 22%, transparent);
+}
+
+.session-rename-input:disabled {
+  opacity: 0.65;
+}
+
+.session-rename-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--danger, #e35d6a);
+  line-height: 1.4;
 }
 
 /* ── Full-page global config (MCP / Skills / Hooks) ── */
@@ -1093,36 +1142,74 @@ body.is-resizing-sidebar * {
   white-space: nowrap;
 }
 
-.session-del-btn {
+/*
+ * 重命名 / 删除：默认不占宽，会话名可铺满整行；
+ * hover / 键盘 focus 时再展开图标，挤短标题。
+ */
+.session-del-btn,
+.session-rename-btn {
   flex-shrink: 0;
-  opacity: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  box-sizing: border-box;
+  width: 0;
+  min-width: 0;
   height: 28px;
-  border-radius: 6px;
-  color: var(--text-3);
-  margin-right: 4px;
+  margin: 0;
+  padding: 0;
   border: none;
+  border-radius: 6px;
+  overflow: hidden;
+  opacity: 0;
+  color: var(--text-3);
   background: transparent;
   cursor: pointer;
-  padding: 0;
+  pointer-events: none;
+  transition:
+    width 0.12s ease,
+    opacity 0.12s ease,
+    margin 0.12s ease,
+    background-color 0.12s ease,
+    color 0.12s ease;
 }
 
-.session-del-btn svg {
+.session-del-btn svg,
+.session-rename-btn svg {
   display: block;
+  flex-shrink: 0;
 }
 
 .session-row:hover .session-del-btn,
-.session-row.active .session-del-btn,
-.session-del-btn:focus {
+.session-row:hover .session-rename-btn,
+.session-row:focus-within .session-del-btn,
+.session-row:focus-within .session-rename-btn {
+  width: 26px;
+  min-width: 26px;
   opacity: 1;
+  pointer-events: auto;
 }
 
-.session-del-btn:hover {
+.session-row:hover .session-rename-btn,
+.session-row:focus-within .session-rename-btn {
+  margin-right: 1px;
+}
+
+.session-row:hover .session-del-btn,
+.session-row:focus-within .session-del-btn {
+  margin-right: 2px;
+}
+
+.session-del-btn:hover,
+.session-del-btn:focus-visible {
   color: var(--error);
   background: color-mix(in srgb, var(--error) 12%, transparent);
+}
+
+.session-rename-btn:hover,
+.session-rename-btn:focus-visible {
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--text-1) 10%, transparent);
 }
 
 .session-del-confirm {
@@ -1294,10 +1381,6 @@ body.is-resizing-sidebar * {
   font-weight: 450;
 }
 
-.session-row .tree-label {
-  font-weight: 450;
-}
-
 .session-row.active {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 999px;
@@ -1317,8 +1400,10 @@ body.is-resizing-sidebar * {
   align-items: center;
   flex-shrink: 0;
   gap: 0;
-  margin-left: 2px;
+  margin-left: 0;
   padding-right: 2px;
+  /* 允许标题侧把可分配空间吃满；操作区默认折叠后宽度接近 0 */
+  max-width: 100%;
 }
 
 .session-expand-btn {
@@ -1354,8 +1439,19 @@ body.is-resizing-sidebar * {
 }
 
 .session-row .session-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 6px 4px 6px 8px;
   gap: 7px;
+}
+
+.session-row .tree-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 450;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-child-count {
@@ -1367,17 +1463,7 @@ body.is-resizing-sidebar * {
   font-variant-numeric: tabular-nums;
   color: var(--text-3);
   pointer-events: none;
-}
-
-/* 有子会话时：hover/选中显示删除，展开按钮常显 */
-.session-row.has-children .session-del-btn {
-  opacity: 0;
-}
-
-.session-row.has-children:hover .session-del-btn,
-.session-row.has-children.active .session-del-btn,
-.session-row.has-children .session-del-btn:focus {
-  opacity: 1;
+  flex-shrink: 0;
 }
 
 .session-children {
@@ -2909,76 +2995,6 @@ kbd {
 
 .compact .msg {
   padding: 8px 10px;
-}
-
-/* ── 新建会话选项 ── */
-.new-session-options {
-  margin: 0 0 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--muted, #1e1e1e) 40%, transparent);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.new-session-options-title {
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--text-2);
-}
-
-.new-session-options-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.new-session-options-label {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.new-session-options-name {
-  font-size: 13px;
-  font-weight: 550;
-  color: var(--text-1);
-}
-
-.new-session-options-desc {
-  font-size: 11.5px;
-  color: var(--text-3);
-  line-height: 1.4;
-}
-
-.new-session-options-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.new-session-options-field label {
-  font-size: 11px;
-  color: var(--text-3);
-}
-
-.new-session-options-input {
-  height: 30px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-2);
-  color: var(--text-1);
-  padding: 0 10px;
-  font-size: 12.5px;
-}
-
-.new-session-options-input:focus {
-  outline: none;
-  border-color: var(--border-strong);
 }
 
 /* ── 插件管理页 ── */

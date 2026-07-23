@@ -66,6 +66,7 @@ interface GrokDesktopApi {
       cwd?: string;
       model?: string;
       alwaysApprove?: boolean;
+      reasoningEffort?: string | null;
     }) => Promise<unknown>;
     stop: () => Promise<unknown>;
     status: () => Promise<unknown>;
@@ -175,6 +176,11 @@ interface GrokDesktopApi {
       outputPath?: string | null,
     ) => Promise<{ ok: boolean; output: string }>;
     worktrees: (projectPath?: string | null) => Promise<string>;
+    doctor: (options?: {
+      json?: boolean;
+      fix?: string | null;
+      cwd?: string | null;
+    }) => Promise<{ ok: boolean; raw: string; data: unknown | null }>;
   };
   sessionMeta: {
     context: (sessionId: string, cwd?: string) => Promise<unknown>;
@@ -218,6 +224,11 @@ interface GrokDesktopApi {
     ) => Promise<{ ok: boolean; output: string }>;
     pluginsUpdate: (
       name?: string | null,
+    ) => Promise<{ ok: boolean; output: string }>;
+    marketplaceList: () => Promise<{ ok: boolean; output: string }>;
+    marketplaceAdd: (source: string) => Promise<{ ok: boolean; output: string }>;
+    marketplaceRemove: (
+      sourceOrName: string,
     ) => Promise<{ ok: boolean; output: string }>;
     hooksList: (projectPath?: string | null) => Promise<unknown>;
     skillsList: (projectPath?: string | null) => Promise<unknown>;

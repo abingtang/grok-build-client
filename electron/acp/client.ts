@@ -2,6 +2,12 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createInterface, type Interface } from "node:readline";
 import { grokSpawnEnv, resolveGrokBinary } from "../env";
+import { handleReadTextFile, handleWriteTextFile } from "./fs-handlers";
+import {
+  RpcHandlerError,
+  TerminalHost,
+  invalidParams,
+} from "./terminal-host";
 import type {
   AcpContentBlock,
   AcpStatus,
@@ -36,6 +42,8 @@ export class AcpClient extends EventEmitter {
   private stderrBuf = "";
   private binPath: string | null = null;
   private promptInFlight = false;
+  /** Client-side ACP terminals (terminal/* methods). */
+  private terminals = new TerminalHost();
 
   getStatus(): AcpStatus {
     return {
@@ -56,6 +64,8 @@ export class AcpClient extends EventEmitter {
     cwd?: string;
     model?: string;
     alwaysApprove?: boolean;
+    /** `--reasoning-effort` / `--effort` on `grok agent` */
+    reasoningEffort?: string | null;
   }): Promise<AcpStatus> {
     const targetCwd = options?.cwd || this.cwd || process.cwd();
     const sameProc =
@@ -76,12 +86,17 @@ export class AcpClient extends EventEmitter {
 
     const bin = resolveGrokBinary();
     this.binPath = bin;
+    // Flags for `grok agent` must come before the subcommand (`agent stdio`).
     const args: string[] = [];
     if (options?.model) {
       args.push("--model", options.model);
     }
     if (this.alwaysApprove) {
       args.push("--always-approve");
+    }
+    const effort = options?.reasoningEffort?.trim();
+    if (effort && effort !== "off") {
+      args.push("--reasoning-effort", effort);
     }
     args.push("agent", "stdio");
 
@@ -175,6 +190,7 @@ export class AcpClient extends EventEmitter {
 
   async stop(): Promise<void> {
     this.promptInFlight = false;
+    this.terminals.releaseAll();
     if (this.rl) {
       this.rl.close();
       this.rl = null;
@@ -502,12 +518,139 @@ export class AcpClient extends EventEmitter {
       return;
     }
 
-    // Unknown server request: reject so agent doesn't hang forever
-    this.writeRaw({
-      jsonrpc: "2.0",
-      id: rpcId,
-      error: { code: -32601, message: `Method not supported: ${method}` },
-    });
+    // Client capability methods advertised in initialize (fs + terminal).
+    // These are async (esp. terminal/wait_for_exit) — reply when done.
+    void this.dispatchClientCapability(method, params, rpcId);
+  }
+
+  /**
+   * Handle agent → client requests that Desktop advertised in
+   * `clientCapabilities` during initialize.
+   *
+   * Without these handlers, tools fail with:
+   * `Method not supported: fs/read_text_file` / `terminal/create` / …
+   */
+  private async dispatchClientCapability(
+    method: string,
+    params: unknown,
+    rpcId: JsonRpcId,
+  ): Promise<void> {
+    try {
+      const result = await this.runClientCapability(method, params);
+      this.writeRaw({
+        jsonrpc: "2.0",
+        id: rpcId,
+        result,
+      });
+    } catch (err) {
+      if (err instanceof RpcHandlerError) {
+        this.writeRaw({
+          jsonrpc: "2.0",
+          id: rpcId,
+          error: {
+            code: err.code,
+            message: err.message,
+            ...(err.data !== undefined ? { data: err.data } : {}),
+          },
+        });
+        return;
+      }
+      // Unknown method → method not found; other errors → internal.
+      const isUnknown =
+        err instanceof Error && err.message.startsWith("Method not supported:");
+      const message =
+        err instanceof Error ? err.message : `Client handler error: ${String(err)}`;
+      this.writeRaw({
+        jsonrpc: "2.0",
+        id: rpcId,
+        error: {
+          code: isUnknown ? -32601 : -32603,
+          message,
+        },
+      });
+    }
+  }
+
+  private async runClientCapability(
+    method: string,
+    params: unknown,
+  ): Promise<unknown> {
+    const p = (params || {}) as Record<string, unknown>;
+    const defaultCwd = this.cwd;
+
+    switch (method) {
+      case "fs/read_text_file":
+        return handleReadTextFile({
+          sessionId: p.sessionId as string | undefined,
+          path: p.path as string | undefined,
+          line: p.line as number | null | undefined,
+          limit: p.limit as number | null | undefined,
+          defaultCwd,
+        });
+
+      case "fs/write_text_file":
+        return handleWriteTextFile({
+          sessionId: p.sessionId as string | undefined,
+          path: p.path as string | undefined,
+          content: p.content as string | undefined,
+          defaultCwd,
+        });
+
+      case "terminal/create": {
+        const command = p.command;
+        if (typeof command !== "string" || !command.trim()) {
+          throw invalidParams("command is required");
+        }
+        return this.terminals.create({
+          sessionId: String(p.sessionId ?? this.sessionId ?? ""),
+          command,
+          args: Array.isArray(p.args) ? (p.args as string[]) : [],
+          env: Array.isArray(p.env)
+            ? (p.env as Array<{ name: string; value: string }>)
+            : [],
+          cwd: typeof p.cwd === "string" ? p.cwd : null,
+          outputByteLimit:
+            typeof p.outputByteLimit === "number" ? p.outputByteLimit : null,
+          defaultCwd,
+        });
+      }
+
+      case "terminal/output": {
+        const terminalId = String(p.terminalId ?? "");
+        if (!terminalId) throw invalidParams("terminalId is required");
+        const snap = this.terminals.output(terminalId);
+        return {
+          output: snap.output,
+          truncated: snap.truncated,
+          exitStatus: snap.exitStatus,
+        };
+      }
+
+      case "terminal/wait_for_exit": {
+        const terminalId = String(p.terminalId ?? "");
+        if (!terminalId) throw invalidParams("terminalId is required");
+        const status = await this.terminals.waitForExit(terminalId);
+        return {
+          exitCode: status.exitCode,
+          signal: status.signal,
+        };
+      }
+
+      case "terminal/kill": {
+        const terminalId = String(p.terminalId ?? "");
+        if (!terminalId) throw invalidParams("terminalId is required");
+        return this.terminals.kill(terminalId);
+      }
+
+      case "terminal/release": {
+        const terminalId = String(p.terminalId ?? "");
+        if (!terminalId) throw invalidParams("terminalId is required");
+        return this.terminals.release(terminalId);
+      }
+
+      default:
+        throw new Error(`Method not supported: ${method}`);
+    }
   }
 
   private formatPermissionDescription(p: Record<string, unknown>): string {

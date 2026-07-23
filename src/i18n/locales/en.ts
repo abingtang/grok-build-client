@@ -31,14 +31,17 @@ const en: MessageTree = {
     general: "General",
     modelDesc: "Grok model used for the current session",
     effort: "Thinking depth",
-    effortDesc: "Maps to CLI --effort: higher = deeper reasoning, more latency",
+    effortDesc:
+      "Maps to CLI --reasoning-effort (--effort alias): none/minimal/low/medium/high/xhigh/max",
     reasoning: "Reasoning effort",
-    reasoningDesc: "Maps to --reasoning-effort; off disables extra reasoning",
+    reasoningDesc:
+      "Maps to --reasoning-effort; shares the same CLI field as thinking depth",
     permissionMode: "Permission mode",
     permissionModeDesc:
       "Tool approval policy (ignored when Always approve is on)",
     bestOfN: "Best-of-N",
-    bestOfNDesc: "Parallel candidates (--best-of-n)",
+    bestOfNDesc:
+      "CLI flag --best-of-n was removed; use the /best-of-n skill instead",
     alwaysApprove: "Auto-approve",
     alwaysApproveDesc: "Auto-approve tool calls without prompts (--always-approve)",
     webSearch: "Web search",
@@ -48,7 +51,8 @@ const en: MessageTree = {
     memory: "Experimental memory",
     memoryDesc: "Cross-turn memory (--experimental-memory)",
     selfCheck: "Self-check",
-    selfCheckDesc: "Run checks after a turn (--check)",
+    selfCheckDesc:
+      "CLI flag --check was removed; use the /check skill instead",
     maxTurns: "Max turns",
     maxTurnsDesc: "Maps to CLI --max-turns (desktop default 48)",
     noPlan: "Disable plan",
@@ -135,6 +139,13 @@ const en: MessageTree = {
       "Generating… Enter queues · Esc stops · Shift+Enter newline",
     placeholderReady:
       "Message Grok… paste/upload images · @ files · / commands · Enter to send",
+    renameSession: "Rename",
+    renameSessionTitle: "Rename session",
+    renameSessionLabel: "Session name",
+    renameSessionPlaceholder: "Enter a new session title",
+    renameEmpty: "Name cannot be empty",
+    renameFailed: "Rename failed",
+    renaming: "Saving…",
   },
 
   palette: {
@@ -204,6 +215,7 @@ const en: MessageTree = {
     remove: "Remove from list",
     deleteSession: "Delete session",
     deleteChildSession: "Delete child session",
+    renameSession: "Rename session",
     collapseChildren: "Collapse children",
     expandChildren: "Expand children",
     childrenCount: "{n} child sessions",
@@ -224,19 +236,7 @@ const en: MessageTree = {
   },
 
   newSession: {
-    optionsTitle: "New session options",
-    worktree: "Git worktree",
-    worktreeDesc: "Run this session in an isolated worktree (CLI --worktree)",
-    worktreeLabel: "Worktree name (optional)",
-    worktreeLabelPh: "e.g. feat-ui",
-    forkSession: "Fork current session",
-    forkSessionDesc:
-      "Copy history into a new session (--fork-session / x.ai/session/fork)",
-    forkSessionNeedParent: "Need an active session before forking",
-    worktreeCreated: "Worktree created: {path}",
-    worktreeFailed: "Worktree failed: {msg}",
     forked: "Forked as session {sid}",
-    forkFailed: "Fork failed: {msg}; creating a normal session instead",
   },
 
   plugins: {
@@ -318,6 +318,10 @@ const en: MessageTree = {
     turnNavLive: "live",
     generating: "Grok is generating…",
     forkFromHere: "Fork from here",
+    retry: "Retry",
+    retryTitle: "Resend this message and regenerate the reply",
+    editMessage: "Edit",
+    editMessageTitle: "Edit and resend",
     skill: "Skill",
     tool: "Tool",
     plan: "Plan",
@@ -369,6 +373,9 @@ const en: MessageTree = {
     needSessionForInspector:
       "Select or create a session first to open session details.",
     waitBeforeFork: "Wait for the current turn to finish before forking.",
+    waitBeforeRetry: "Wait for the current turn to finish before retrying.",
+    waitBeforeEdit: "Wait for the current turn to finish before editing.",
+    noRetryTarget: "No user message to retry.",
     noForkContext: "No conversation context before this message to fork.",
     forkedContinue:
       "Continued in a new task (fork)\nSession {sid}\nContext kept up to the selected message; the next send includes the branch context.",

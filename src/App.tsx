@@ -39,10 +39,6 @@ import {
   PluginsPage,
   type PluginsToolbar,
 } from "./components/PluginsPage";
-import {
-  NewSessionOptions,
-  type NewSessionOptionsValue,
-} from "./components/NewSessionOptions";
 import { PermissionModal } from "./components/PermissionModal";
 import { ProjectTree } from "./components/ProjectTree";
 import {
@@ -60,8 +56,17 @@ import {
 } from "@/components/ui/select";
 import {
   HamburgerMenuIcon,
+  Pencil2Icon,
   UploadIcon,
 } from "@radix-ui/react-icons";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   buildGrokArgs,
   type EffortLevel,
@@ -316,27 +321,22 @@ export default function App() {
   const [pluginsToolbar, setPluginsToolbar] = useState<PluginsToolbar | null>(
     null,
   );
-  /** Show new-session options strip (worktree / fork) */
-  const [showNewSessionOpts, setShowNewSessionOpts] = useState(false);
-  const [newSessionOpts, setNewSessionOpts] =
-    useState<NewSessionOptionsValue>({
-      useWorktree: false,
-      worktreeLabel: "",
-      forkFromCurrent: false,
-    });
-  /** Parent session id when drafting a fork-from-current session */
-  const forkParentRef = useRef<{
-    sessionId: string;
-    cwd: string;
-  } | null>(null);
-  const [canForkNewSession, setCanForkNewSession] = useState(false);
-
   const [appInfo, setAppInfo] = useState<{
     version: string;
     grokHome: string;
     grokBin: string;
   } | null>(null);
   const [grokReady, setGrokReady] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  /** Target for rename dialog (titlebar or sidebar session row). */
+  const [renameTarget, setRenameTarget] = useState<{
+    sessionId: string;
+    cwd: string;
+    title: string;
+  } | null>(null);
 
   const streamingIdRef = useRef<string | null>(null);
   const thoughtIdRef = useRef<string | null>(null);
@@ -354,6 +354,11 @@ export default function App() {
   const projectPathRef = useRef<string | null>(null);
   /** Prefer ACP; headless only as fallback */
   const runtimeModeRef = useRef<"acp" | "headless">("acp");
+  /**
+   * 当前是否有「进行中」的 agent 回合（含 ACP prompt await / headless run）。
+   * 打断后立即置 false，避免迟到的 sessionUpdate 继续改写 transcript。
+   */
+  const turnActiveRef = useRef(false);
   /** Context seed prepended once after message-level fork */
   const forkContextSeedRef = useRef<string | null>(null);
   const streamStartedAtRef = useRef<number>(0);
@@ -519,6 +524,9 @@ export default function App() {
         setStreamElapsed(Date.now() - snap.startedAt);
       }
 
+      // 回合已结束后忽略缓冲回调，避免打断 finalize 后又写回空 assistant / streaming
+      if (!turnActiveRef.current) return;
+
       setMessages((prev) => {
         let next = prev;
         const upsert = (
@@ -531,7 +539,8 @@ export default function App() {
           if (!id) return;
           const idx = next.findIndex((m) => m.id === id);
           if (idx === -1) {
-            if (!content && role !== "assistant") return;
+            // 勿在非 streaming 时插入空 assistant（打断收束后会被 finalize 删掉又被回写）
+            if (!content && !(role === "assistant" && streaming)) return;
             const row: ChatMessage = {
               id,
               role,
@@ -625,6 +634,7 @@ export default function App() {
       }),
       window.grokDesktop.acp.onExit(() => {
         acpSessionIdRef.current = null;
+        turnActiveRef.current = false;
         setStatus((prev) => ({ ...prev, connected: false, sessionId: null }));
         setBusy(false);
         setRunLabel(null);
@@ -675,18 +685,20 @@ export default function App() {
         // Only finalize when this turn is on headless fallback
         if (runtimeModeRef.current !== "headless") return;
         if (st.state === "running") {
+          turnActiveRef.current = true;
           setBusy(true);
           setRunLabel(t("status.connecting"));
         } else {
-          finalizeAcpTurn();
+          // 若用户已打断，finalize 幂等；避免再塞一条 cancelled 系统消息
+          const wasActive = turnActiveRef.current || busyRef.current;
+          finalizeAcpTurn({
+            cancelled: st.state === "cancelled" && wasActive,
+          });
           if (st.state === "failed" && st.error) {
             setMessages((m) => [
               ...m,
               systemMessage(t("msg.failed", { msg: st.error || "" })),
             ]);
-          }
-          if (st.state === "cancelled") {
-            setMessages((m) => [...m, systemMessage(t("msg.cancelled"))]);
           }
         }
       }),
@@ -1011,14 +1023,11 @@ export default function App() {
     setMessages(cached ? cached.map((m) => ({ ...m })) : []);
     setAttachments([]);
     draftNewSessionRef.current = false;
-    setShowNewSessionOpts(false);
-    setCanForkNewSession(false);
     setPluginsPageOpen(false);
     streamingIdRef.current = null;
     thoughtIdRef.current = null;
     // 仅清除与「当前会话无关」的 seed；同会话 fork seed 由下方 snapshot 恢复
     forkContextSeedRef.current = null;
-    forkParentRef.current = null;
 
     try {
       const transcriptPromise = cached
@@ -1157,10 +1166,6 @@ export default function App() {
       maxTurns,
       noPlan,
       sandbox: sandbox || null,
-      worktree: newSessionOpts.useWorktree
-        ? newSessionOpts.worktreeLabel.trim() || true
-        : null,
-      forkSession: newSessionOpts.forkFromCurrent,
       cwd: project?.path || "",
       continueConversation:
         continueRef.current ||
@@ -1193,6 +1198,17 @@ export default function App() {
     if (!update || typeof update !== "object") return;
     const su = String(update.sessionUpdate || update.session_update || "");
     if (!su) return;
+
+    // 打断/收束后忽略流式与工具事件，防止 transcript 被迟到更新打乱
+    const turnLive = turnActiveRef.current;
+    const isStreamOrTool =
+      su === "agent_message_chunk" ||
+      su === "agent_message" ||
+      su === "agent_thought_chunk" ||
+      su === "agent_thought" ||
+      su === "tool_call" ||
+      su === "tool_call_update";
+    if (!turnLive && isStreamOrTool) return;
 
     if (su === "agent_message_chunk" || su === "agent_message") {
       const chunk = extractUpdateText(update.content);
@@ -1509,6 +1525,69 @@ export default function App() {
     setWorktreeText(t || "(empty)");
   }
 
+  function openRenameSession(
+    target?: { session: SessionSummary; project: ProjectInfo } | null,
+  ): void {
+    const s = target?.session || session;
+    const p = target?.project || project;
+    if (!s) return;
+    const cwd = p?.path || s.cwd || "";
+    if (!cwd) return;
+    setRenameTarget({
+      sessionId: s.id,
+      cwd,
+      title: s.title?.trim() || "",
+    });
+    setRenameDraft(s.title?.trim() || "");
+    setRenameError(null);
+    setRenameOpen(true);
+  }
+
+  async function submitRenameSession(): Promise<void> {
+    const title = renameDraft.trim();
+    if (!renameTarget) return;
+    if (!title) {
+      setRenameError(t("app.renameEmpty"));
+      return;
+    }
+    if (title === (renameTarget.title || "").trim()) {
+      setRenameOpen(false);
+      setRenameTarget(null);
+      return;
+    }
+    setRenameBusy(true);
+    setRenameError(null);
+    try {
+      const result = (await window.grokDesktop.slash.execute(
+        `/rename ${title}`,
+        {
+          projectPath: renameTarget.cwd,
+          sessionId: renameTarget.sessionId,
+          model: model || null,
+        },
+      )) as {
+        handled?: boolean;
+        action?: string;
+        message?: string;
+        data?: { sessionId?: string; title?: string };
+      };
+      if (result.action === "rename-session" && result.data?.sessionId) {
+        await applySlashResult(result as Parameters<typeof applySlashResult>[0]);
+        setRenameOpen(false);
+        setRenameTarget(null);
+        return;
+      }
+      setRenameError(result.message || t("app.renameFailed"));
+      if (result.message && result.action === "error") {
+        setMessages((m) => [...m, systemMessage(result.message!)]);
+      }
+    } catch (e) {
+      setRenameError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRenameBusy(false);
+    }
+  }
+
   async function runSlashCommand(cmd: string): Promise<void> {
     if (!project) return;
     const result = (await window.grokDesktop.slash.execute(cmd, {
@@ -1694,6 +1773,100 @@ export default function App() {
     }
   }
 
+  /** 最后一条用户消息（用于编辑 / 重试）。 */
+  function findLastUserMessage(
+    list: ChatMessage[] = messages,
+  ): ChatMessage | null {
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i].role === "user") return list[i];
+    }
+    return null;
+  }
+
+  /**
+   * 编辑用户消息：填入输入框，并截断该消息及之后内容。
+   * 用户改完后正常发送。
+   */
+  function editUserMessage(messageId: string): void {
+    if (busy) {
+      setMessages((m) => [...m, systemMessage(t("msg.waitBeforeEdit"))]);
+      return;
+    }
+    const idx = messages.findIndex((m) => m.id === messageId);
+    if (idx < 0) return;
+    const m = messages[idx];
+    if (m.role !== "user") return;
+
+    const attachmentOnly = t("msg.attachmentOnly");
+    const text =
+      m.content === attachmentOnly && m.attachments?.length
+        ? ""
+        : m.content || "";
+    setInput(text);
+    setAttachments(
+      (m.attachments || []).map((a) => ({
+        id: a.id,
+        name: a.name,
+        path: a.path,
+        mimeType: a.mimeType,
+        size: a.size,
+        isImage: a.isImage,
+        previewUrl: a.previewUrl,
+      })),
+    );
+    setShowSlash(false);
+    // 去掉该用户消息及之后的 assistant / tool 等
+    setMessages((prev) => prev.slice(0, idx));
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      const len = el.value.length;
+      el.setSelectionRange(len, len);
+    });
+  }
+
+  /** 重试：保留用户气泡，去掉其后回复并重新跑一轮。 */
+  async function retryFromUserMessage(messageId: string): Promise<void> {
+    if (busy) {
+      setMessages((m) => [...m, systemMessage(t("msg.waitBeforeRetry"))]);
+      return;
+    }
+    if (!project) {
+      setMessages((m) => [...m, systemMessage(t("msg.selectProjectFirst"))]);
+      return;
+    }
+    const m = messages.find((x) => x.id === messageId);
+    if (!m || m.role !== "user") return;
+
+    const attachmentOnly = t("msg.attachmentOnly");
+    const prompt =
+      m.content === attachmentOnly && m.attachments?.length
+        ? ""
+        : m.content || "";
+    const pending = (m.attachments || []).map((a) => ({
+      id: a.id,
+      name: a.name,
+      path: a.path,
+      mimeType: a.mimeType,
+      size: a.size,
+      isImage: a.isImage,
+      previewUrl: a.previewUrl,
+    }));
+    if (!prompt.trim() && !pending.length) return;
+
+    await runAgent(prompt, pending, { retryFromUserId: messageId });
+  }
+
+  async function retryLastTurn(): Promise<void> {
+    const last = findLastUserMessage();
+    if (!last) {
+      setMessages((m) => [...m, systemMessage(t("msg.noRetryTarget"))]);
+      return;
+    }
+    await retryFromUserMessage(last.id);
+  }
+
   function removeAttachment(id: string): void {
     setAttachments((prev) => {
       const next = prev.filter((a) => a.id !== id);
@@ -1849,10 +2022,13 @@ export default function App() {
   }
 
   async function ensureAcpAgent(cwd: string): Promise<void> {
+    const effortArg =
+      reasoning && reasoning !== "off" ? reasoning : effort || undefined;
     await window.grokDesktop.acp.start({
       cwd,
       model: model || undefined,
       alwaysApprove,
+      reasoningEffort: effortArg,
     });
   }
 
@@ -1863,115 +2039,10 @@ export default function App() {
       return acpSessionIdRef.current;
     }
 
-    // Apply draft options once (worktree / fork-session)
-    const opts = newSessionOpts;
-    let sessionCwd = cwd;
-    const parent = forkParentRef.current;
-
-    if (opts.useWorktree) {
-      try {
-        const wt = await window.grokDesktop.extensions.worktreeCreate(
-          cwd,
-          opts.worktreeLabel || null,
-        );
-        if (wt.ok && wt.path) {
-          sessionCwd = wt.path;
-          setMessages((m) => [
-            ...m,
-            systemMessage(t("newSession.worktreeCreated", { path: wt.path! })),
-          ]);
-        } else if (wt.output) {
-          setMessages((m) => [
-            ...m,
-            systemMessage(
-              t("newSession.worktreeFailed", { msg: wt.output }),
-            ),
-          ]);
-        }
-      } catch (e) {
-        setMessages((m) => [
-          ...m,
-          systemMessage(
-            t("newSession.worktreeFailed", {
-              msg: e instanceof Error ? e.message : String(e),
-            }),
-          ),
-        ]);
-      }
-    }
-
-    if (opts.forkFromCurrent && parent?.sessionId) {
-      try {
-        const result = (await window.grokDesktop.acp.extension(
-          "x.ai/session/fork",
-          {
-            sourceSessionId: parent.sessionId,
-            sourceCwd: parent.cwd,
-            newCwd: sessionCwd,
-            sessionKind: opts.useWorktree ? "worktree" : "fork",
-            sourceWorkspaceDir: opts.useWorktree ? parent.cwd : undefined,
-            newModelId: model || undefined,
-          },
-        )) as { newSessionId?: string; new_session_id?: string };
-        const sid =
-          result?.newSessionId ||
-          result?.new_session_id ||
-          (result as { newSessionId?: string })?.newSessionId;
-        if (sid) {
-          try {
-            await window.grokDesktop.acp.loadSession(sid, sessionCwd);
-          } catch {
-            /* load may fail if agent expects different shape; still track id */
-          }
-          draftNewSessionRef.current = false;
-          forkParentRef.current = null;
-          setShowNewSessionOpts(false);
-          setCanForkNewSession(false);
-          setNewSessionOpts({
-            useWorktree: false,
-            worktreeLabel: "",
-            forkFromCurrent: false,
-          });
-          acpSessionIdRef.current = sid;
-          headlessSessionIdRef.current = sid;
-          continueRef.current = true;
-          setStatus((s) => ({
-            ...s,
-            sessionId: sid,
-            connected: true,
-            cwd: sessionCwd,
-          }));
-          setMessages((m) => [
-            ...m,
-            systemMessage(t("newSession.forked", { sid })),
-          ]);
-          return sid;
-        }
-      } catch (e) {
-        setMessages((m) => [
-          ...m,
-          systemMessage(
-            t("newSession.forkFailed", {
-              msg: e instanceof Error ? e.message : String(e),
-            }),
-          ),
-        ]);
-        // fall through to plain newSession
-      }
-    }
-
-    const result = (await window.grokDesktop.acp.newSession(sessionCwd, {
+    const result = (await window.grokDesktop.acp.newSession(cwd, {
       // pass-through hints when agent supports them
     })) as { sessionId: string };
     draftNewSessionRef.current = false;
-    forkParentRef.current = null;
-    setShowNewSessionOpts(false);
-    setCanForkNewSession(false);
-    setNewSessionOpts({
-      useWorktree: false,
-      worktreeLabel: "",
-      forkFromCurrent: false,
-    });
     acpSessionIdRef.current = result.sessionId;
     headlessSessionIdRef.current = result.sessionId;
     continueRef.current = true;
@@ -1979,7 +2050,7 @@ export default function App() {
       ...s,
       sessionId: result.sessionId,
       connected: true,
-      cwd: sessionCwd,
+      cwd,
     }));
     return result.sessionId;
   }
@@ -1987,10 +2058,13 @@ export default function App() {
   /**
    * Primary runtime: ACP long session (same agent as TUI via grok agent stdio).
    * Falls back to headless if ACP fails to start/prompt.
+   *
+   * @param opts.retryFromUserId 重试：截断该用户消息之后的回合，并复用该气泡（不再插入新 user 消息）
    */
   async function runAgent(
     prompt: string,
     pendingAttachments: MessageAttachment[] = [],
+    opts?: { retryFromUserId?: string },
   ): Promise<void> {
     if (!project) {
       setMessages((m) => [...m, systemMessage(t("msg.selectProjectFirst"))]);
@@ -1999,6 +2073,11 @@ export default function App() {
     if (!prompt.trim() && !pendingAttachments.length) return;
 
     if (busy) {
+      // 重试/编辑重发不进队列，避免静默叠任务
+      if (opts?.retryFromUserId) {
+        setMessages((m) => [...m, systemMessage(t("msg.waitBeforeRetry"))]);
+        return;
+      }
       setQueue((q) => [...q, prompt]);
       setMessages((m) => [
         ...m,
@@ -2044,7 +2123,7 @@ export default function App() {
       pendingAttachments,
     );
 
-    const userId = uid();
+    const userId = opts?.retryFromUserId || uid();
     const thoughtId = uid();
     const textId = uid();
     thoughtIdRef.current = thoughtId;
@@ -2054,33 +2133,45 @@ export default function App() {
     setStreamPhase("waiting");
     toolMsgByCallIdRef.current.clear();
 
-    setMessages((m) => [
-      ...m,
-      {
-        id: userId,
-        role: "user",
-        content: prompt || (pendingAttachments.length ? t("msg.attachmentOnly") : ""),
-        createdAt: new Date().toISOString(),
-        attachments: pendingAttachments.length
-          ? pendingAttachments.map((a) => ({
-              id: a.id,
-              name: a.name,
-              path: a.path,
-              mimeType: a.mimeType,
-              size: a.size,
-              isImage: a.isImage,
-              previewUrl: a.previewUrl,
-            }))
-          : undefined,
-      },
-      {
+    setMessages((m) => {
+      let base = m;
+      if (opts?.retryFromUserId) {
+        const idx = m.findIndex((x) => x.id === opts.retryFromUserId);
+        if (idx >= 0) base = m.slice(0, idx + 1);
+      }
+      const next = base.slice();
+      if (!opts?.retryFromUserId) {
+        next.push({
+          id: userId,
+          role: "user",
+          content:
+            prompt ||
+            (pendingAttachments.length ? t("msg.attachmentOnly") : ""),
+          createdAt: new Date().toISOString(),
+          attachments: pendingAttachments.length
+            ? pendingAttachments.map((a) => ({
+                id: a.id,
+                name: a.name,
+                path: a.path,
+                mimeType: a.mimeType,
+                size: a.size,
+                isImage: a.isImage,
+                previewUrl: a.previewUrl,
+              }))
+            : undefined,
+        });
+      }
+      next.push({
         id: textId,
         role: "assistant",
         content: "",
         createdAt: new Date().toISOString(),
         streaming: true,
-      },
-    ]);
+      });
+      return next;
+    });
+    // 先标记回合活跃，再 begin，否则 streamBuffer 首次 emit 会被 applySnapshot 丢弃
+    turnActiveRef.current = true;
     streamBuffer.begin({ thoughtId, textId });
     setBusy(true);
     setRunLabel(t("status.agentConnecting"));
@@ -2153,6 +2244,7 @@ export default function App() {
           cwd: project.path,
         });
       } catch (e2) {
+        turnActiveRef.current = false;
         streamBuffer.reset();
         setBusy(false);
         setRunLabel(null);
@@ -2168,6 +2260,10 @@ export default function App() {
   }
 
   function finalizeAcpTurn(opts?: { cancelled?: boolean }): void {
+    // 幂等：打断后 prompt 返回会再次 finalize，忽略第二次
+    if (!turnActiveRef.current && !busyRef.current) return;
+    turnActiveRef.current = false;
+
     if (cancelForceTimerRef.current) {
       clearTimeout(cancelForceTimerRef.current);
       cancelForceTimerRef.current = null;
@@ -2202,11 +2298,18 @@ export default function App() {
       // 收束整轮：清掉工具/子代理/思考上卡住的 streaming 与 running 状态，避免 UI 一直「处理中」
       next = next.map((m) => {
         if (!m.streaming && !isIncompleteToolStatus(m.status)) return m;
-        const status = isIncompleteToolStatus(m.status)
-          ? m.status === "running" || m.status === "in_progress" || m.status === "pending"
-            ? "completed"
-            : m.status
-          : m.status;
+        let status = m.status;
+        if (isIncompleteToolStatus(m.status)) {
+          if (opts?.cancelled) {
+            status = "cancelled";
+          } else if (
+            m.status === "running" ||
+            m.status === "in_progress" ||
+            m.status === "pending"
+          ) {
+            status = "completed";
+          }
+        }
         return {
           ...m,
           streaming: false,
@@ -2214,12 +2317,18 @@ export default function App() {
           collapsed: m.role === "thought" ? true : m.collapsed,
         };
       });
+      // 仅去掉「空的」占位 assistant；有正文的半截回复要保留
       next = next.filter(
         (m) =>
           !(m.id === final.textId && !m.content && m.role === "assistant"),
       );
       if (opts?.cancelled) {
-        next.push(systemMessage(t("msg.stopped")));
+        // 避免重复堆叠「已停止」
+        const last = next[next.length - 1];
+        const stopped = t("msg.stopped");
+        if (!(last?.role === "system" && last.content === stopped)) {
+          next.push(systemMessage(stopped));
+        }
       }
       return next;
     });
@@ -2230,6 +2339,7 @@ export default function App() {
     setPermission(null);
     streamingIdRef.current = null;
     thoughtIdRef.current = null;
+    toolMsgByCallIdRef.current.clear();
     continueRef.current = true;
     clearTranscriptCache(acpSessionIdRef.current || headlessSessionIdRef.current);
     if (projectPathRef.current) {
@@ -2263,25 +2373,13 @@ export default function App() {
    * 真正的会话在用户首次发送消息时由 ensureAcpSession 创建。
    */
   async function createNewChat(owner?: ProjectInfo | null): Promise<void> {
-    // Capture parent for optional fork-from-current before clearing
-    const parentSid =
-      session?.id || acpSessionIdRef.current || headlessSessionIdRef.current;
-    const parentCwd = project?.path || null;
-    if (parentSid && parentCwd) {
-      forkParentRef.current = { sessionId: parentSid, cwd: parentCwd };
-      setCanForkNewSession(true);
-    } else {
-      forkParentRef.current = null;
-      setCanForkNewSession(false);
-    }
-
     // 先标记草稿，避免 acp status 把旧 sessionId 写回
     draftNewSessionRef.current = true;
-    setShowNewSessionOpts(true);
     headlessSessionIdRef.current = null;
     acpSessionIdRef.current = null;
     continueRef.current = false;
     forkContextSeedRef.current = null;
+    turnActiveRef.current = false;
     toolMsgByCallIdRef.current.clear();
     setSession(null);
     setAttachments([]);
@@ -2291,11 +2389,6 @@ export default function App() {
     setRunLabel(null);
     setStreamPhase("idle");
     streamBuffer.reset();
-    setNewSessionOpts({
-      useWorktree: false,
-      worktreeLabel: "",
-      forkFromCurrent: false,
-    });
     setPluginsPageOpen(false);
     setGlobalPage(null);
 
@@ -2527,9 +2620,17 @@ export default function App() {
       case "set-effort": {
         const next = String(
           (result.data as { effort?: string } | undefined)?.effort || "",
-        ) as EffortLevel;
-        if (["low", "medium", "high", "xhigh", "max"].includes(next)) {
-          setEffort(next);
+        )
+          .trim()
+          .toLowerCase();
+        // Canonical CLI tiers; UI select only exposes low…max.
+        if (["none", "minimal"].includes(next)) {
+          setReasoning(next as ReasoningEffort);
+        } else if (
+          ["low", "medium", "high", "xhigh", "max"].includes(next)
+        ) {
+          setEffort(next as EffortLevel);
+          setReasoning("off");
         }
         break;
       }
@@ -2675,9 +2776,8 @@ export default function App() {
   }
 
   async function cancelTurn(): Promise<void> {
-    if (!busyRef.current && !permission) return;
+    if (!busyRef.current && !permission && !turnActiveRef.current) return;
     setRunLabel(t("status.stoppingEllipsis"));
-    setStreamPhase("waiting");
     // 若卡在权限审批，先拒绝再 cancel，避免 agent 悬挂在 request_permission
     const pendingPermission = permission;
     if (pendingPermission) {
@@ -2692,6 +2792,11 @@ export default function App() {
         /* best-effort */
       }
     }
+    // 立刻收束 UI（保留已有工具/半截回复），再发 cancel RPC。
+    // 否则要等 prompt 返回或 1.2s 定时器，期间迟到的 update 会把分段打乱。
+    if (turnActiveRef.current || busyRef.current) {
+      finalizeAcpTurn({ cancelled: true });
+    }
     try {
       await Promise.allSettled([
         window.grokDesktop.headless.cancel(),
@@ -2700,16 +2805,6 @@ export default function App() {
     } catch {
       /* cancel is best-effort */
     }
-    // ACP prompt 正常返回后会 finalize；若 1.2s 后仍 busy 则强制解锁，避免「停止无效」
-    if (cancelForceTimerRef.current) {
-      clearTimeout(cancelForceTimerRef.current);
-    }
-    cancelForceTimerRef.current = setTimeout(() => {
-      cancelForceTimerRef.current = null;
-      if (busyRef.current) {
-        finalizeAcpTurn({ cancelled: true });
-      }
-    }, 1200);
   }
 
   const settingsValue: SettingsState = {
@@ -3087,14 +3182,26 @@ export default function App() {
                   </button>
                 ) : null}
                 {session ? (
-                  <button
-                    type="button"
-                    className="btn btn-sm titlebar-session-detail"
-                    title={t("tree.openSessionInspectorTitle")}
-                    onClick={() => openSessionInspector(session, "context")}
-                  >
-                    {t("tree.openSessionInspector")}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-sm titlebar-session-rename"
+                      title={t("app.renameSessionTitle")}
+                      aria-label={t("app.renameSession")}
+                      onClick={() => openRenameSession()}
+                    >
+                      <Pencil2Icon className="titlebar-session-rename-icon" />
+                      <span>{t("app.renameSession")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm titlebar-session-detail"
+                      title={t("tree.openSessionInspectorTitle")}
+                      onClick={() => openSessionInspector(session, "context")}
+                    >
+                      {t("tree.openSessionInspector")}
+                    </button>
+                  </>
                 ) : null}
               </>
             )}
@@ -3123,6 +3230,7 @@ export default function App() {
               void loadSession(s, p);
             }}
             onDeleteSession={(p, s) => void deleteSession(p, s)}
+            onRenameSession={(p, s) => openRenameSession({ project: p, session: s })}
             onOpenFolder={() => void openProjectPicker()}
             onRefresh={() => {
               void refreshProjects();
@@ -3188,6 +3296,10 @@ export default function App() {
             modelLabel={model}
             onForkMessage={(id) => void forkFromMessage(id)}
             forkDisabled={busy || sessionLoading || !project}
+            onEditUserMessage={(id) => editUserMessage(id)}
+            onRetryUserMessage={(id) => void retryFromUserMessage(id)}
+            onRetryLastTurn={() => void retryLastTurn()}
+            actionsDisabled={busy || sessionLoading || !project}
             onStop={() => void cancelTurn()}
             mediaBaseDirs={mediaBaseDirs}
             streamStatus={
@@ -3207,14 +3319,6 @@ export default function App() {
                 activeIndex={slashIndex}
                 onHover={setSlashIndex}
                 onSelect={selectSlash}
-              />
-            ) : null}
-
-            {showNewSessionOpts && project ? (
-              <NewSessionOptions
-                value={newSessionOpts}
-                onChange={setNewSessionOpts}
-                canFork={canForkNewSession}
               />
             ) : null}
 
@@ -3557,6 +3661,73 @@ export default function App() {
         }}
         onClose={() => setSettingsOpen(false)}
       />
+
+      <Dialog
+        open={renameOpen}
+        onOpenChange={(open) => {
+          if (renameBusy) return;
+          setRenameOpen(open);
+          if (!open) {
+            setRenameError(null);
+            setRenameTarget(null);
+          }
+        }}
+      >
+        <DialogContent
+          className="w-[min(420px,calc(100vw-32px))] overflow-hidden p-0 sm:max-w-md"
+          showClose={!renameBusy}
+        >
+          <DialogHeader>
+            <DialogTitle>{t("app.renameSession")}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <label className="session-rename-label" htmlFor="session-rename-input">
+              {t("app.renameSessionLabel")}
+            </label>
+            <input
+              id="session-rename-input"
+              className="session-rename-input"
+              value={renameDraft}
+              autoFocus
+              disabled={renameBusy}
+              placeholder={t("app.renameSessionPlaceholder")}
+              onChange={(e) => {
+                setRenameDraft(e.target.value);
+                if (renameError) setRenameError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void submitRenameSession();
+                }
+              }}
+            />
+            {renameError ? (
+              <p className="session-rename-error" role="alert">
+                {renameError}
+              </p>
+            ) : null}
+          </DialogBody>
+          <DialogFooter>
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={renameBusy}
+              onClick={() => setRenameOpen(false)}
+            >
+              {t("common.cancel")}
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              disabled={renameBusy || !renameDraft.trim()}
+              onClick={() => void submitRenameSession()}
+            >
+              {renameBusy ? t("app.renaming") : t("common.confirm")}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <CommandPalette
         open={paletteOpen}
