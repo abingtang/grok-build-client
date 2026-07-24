@@ -1,7 +1,7 @@
 {
-  "name": "grok-build-desktop",
+  "name": "grok-build-client",
   "version": "0.1.0",
-  "description": "Desktop client for Grok Build on macOS and Windows — project switcher, sessions, and full slash-command support via ACP",
+  "description": "Unofficial desktop client for Grok Build on macOS and Windows — project switcher, sessions, and full slash-command support via ACP",
   "main": "dist-electron/main.js",
   "author": "local",
   "license": "MIT",
@@ -86,8 +86,8 @@
     "wait-on": "^8.0.3"
   },
   "build": {
-    "appId": "com.local.grok-build-desktop",
-    "productName": "Grok Build Desktop",
+    "appId": "com.local.grok-build-client",
+    "productName": "Grok Build Client",
     "directories": {
       "output": "release"
     },

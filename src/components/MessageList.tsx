@@ -838,7 +838,7 @@ export function MessageList({
       <div className="chat-messages empty-fill">
         <div className="empty-state">
           <div className="empty-state-mark" />
-          <h2>Grok Build Desktop</h2>
+          <h2>Grok Build Client</h2>
           <p>
             选择左侧会话或新建对话 · 模型{" "}
             <strong>{modelLabel || "grok"}</strong>

@@ -1,5 +1,5 @@
 /**
- * AI SDK ChatTransport for Grok Build Desktop.
+ * AI SDK ChatTransport for Grok Build Client.
  *
  * Desktop does not talk to a Vercel HTTP `/api/chat` endpoint. Instead, the
  * main process drives ACP / headless streams. This transport implements the

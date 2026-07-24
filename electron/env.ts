@@ -80,10 +80,43 @@ export function grokSpawnEnv(
   };
 }
 
+/** Product data dir (projects list, etc.). Not the same as GROK_HOME sessions. */
+export const APP_DATA_DIR_NAME = ".grok-build-client";
+/** Pre-rename data dir — migrated once on first launch after rebrand. */
+export const APP_DATA_DIR_NAME_LEGACY = ".grok-build-desktop";
+
+/**
+ * Migrate ~/.grok-build-desktop → ~/.grok-build-client when the new dir
+ * does not exist yet. Best-effort; failures fall through to creating empty dir.
+ */
+function migrateLegacyAppDataDir(preferred: string, legacy: string): void {
+  if (fs.existsSync(preferred) || !fs.existsSync(legacy)) return;
+  try {
+    fs.renameSync(legacy, preferred);
+    return;
+  } catch {
+    /* fall through to copy */
+  }
+  try {
+    fs.mkdirSync(preferred, { recursive: true });
+    for (const name of fs.readdirSync(legacy)) {
+      const from = path.join(legacy, name);
+      const to = path.join(preferred, name);
+      if (!fs.existsSync(to)) {
+        fs.copyFileSync(from, to);
+      }
+    }
+  } catch {
+    /* ignore — app can start with empty store */
+  }
+}
+
 export function getAppDataDir(): string {
-  const dir = path.join(os.homedir(), ".grok-build-desktop");
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+  const preferred = path.join(os.homedir(), APP_DATA_DIR_NAME);
+  const legacy = path.join(os.homedir(), APP_DATA_DIR_NAME_LEGACY);
+  migrateLegacyAppDataDir(preferred, legacy);
+  fs.mkdirSync(preferred, { recursive: true });
+  return preferred;
 }
 
 export function getProjectsStorePath(): string {

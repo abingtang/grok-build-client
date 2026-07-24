@@ -160,7 +160,7 @@ export class AcpClient extends EventEmitter {
         {
           protocolVersion: 1,
           clientInfo: {
-            name: "grok-build-desktop",
+            name: "grok-build-client",
             version: "0.2.0",
           },
           clientCapabilities: {

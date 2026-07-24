@@ -1,4 +1,4 @@
-# AGENT.md — Grok Build Desktop
+# AGENT.md — Grok Build Client
 
 面向在本仓库内工作的编码代理(agent)与协作者。先读本文，再改代码。
 
@@ -6,11 +6,12 @@
 
 ## 项目是什么
 
-**Grok Build Desktop** 是**非官方** macOS 桌面客户端：用 Electron + React 包装本机官方 **Grok Build CLI**（`grok`），提供项目切换、会话树、流式对话、斜杠命令与能力检查器。
+**Grok Build Client**（包名 `grok-build-client`）是**非官方** macOS / Windows 桌面客户端：用 Electron + React 包装本机官方 **Grok Build CLI**（`grok`），提供项目切换、会话树、流式对话、斜杠命令与能力检查器。
 
 - **不**托管模型 API；模型列表来自 `grok models`
 - **不**另造第三方工作流 / 自定义 mode；能力对齐官方 CLI + ACP
-- 会话数据在 `~/.grok/`；应用本地数据在 `~/.grok-build-desktop/`（如 `projects.json`）
+- 会话数据在 `~/.grok/`（按**项目 cwd** 分目录，与本仓库文件夹名无关）
+- 应用本地数据在 `~/.grok-build-client/`（如 `projects.json`；旧路径 `~/.grok-build-desktop/` 会自动迁移）
 - 与 xAI / Grok **无官方关联**
 
 主运行时：`grok agent stdio`（ACP 长会话）  
@@ -51,7 +52,7 @@ React UI  ──preload (contextBridge: window.grokDesktop)──►  Electron m
 1. **渲染进程不得直接 spawn `grok`**，只能通过 `window.grokDesktop`（preload 暴露的 API）。
 2. 新增系统能力：先加 **main IPC handler** → **preload 类型与桥接** → 再改 React。
 3. 会话目录、配置路径、CLI 参数以官方 CLI 为准；不要发明与 TUI 不兼容的存储格式。
-4. 项目侧栏列表来自本地缓存 `~/.grok-build-desktop/projects.json`（用户显式打开/添加），**不要**再把「扫描全部 `~/.grok/sessions` 并合并」当成唯一列表源——删除项目会形同虚设。`sessionCount` 可从 sessions 盘上补齐展示。
+4. 项目侧栏列表来自本地缓存 `~/.grok-build-client/projects.json`（用户显式打开/添加），**不要**再把「扫描全部 `~/.grok/sessions` 并合并」当成唯一列表源——删除项目会形同虚设。`sessionCount` 可从 sessions 盘上补齐展示。
 
 ---
 

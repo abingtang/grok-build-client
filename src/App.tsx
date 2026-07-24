@@ -3016,7 +3016,7 @@ export default function App() {
         <div className="titlebar-brand">
           <div className="brand-text">
             <h1>Grok Build</h1>
-            <span>Desktop</span>
+            <span>Client</span>
           </div>
         </div>
 

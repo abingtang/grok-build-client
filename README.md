@@ -171,7 +171,7 @@ grok-build-client/
 | Data path | Purpose |
 |-----------|---------|
 | `~/.grok/` | Official CLI home (sessions, config, binary) |
-| `~/.grok-build-desktop/` | App data (e.g. `projects.json`) |
+| `~/.grok-build-client/` | App data (e.g. `projects.json`; migrates from legacy `~/.grok-build-desktop/`) |
 
 ### Keyboard shortcuts
 
@@ -336,7 +336,7 @@ grok-build-client/
 | 数据路径 | 用途 |
 |----------|------|
 | `~/.grok/` | 官方 CLI 家目录（会话、配置、二进制） |
-| `~/.grok-build-desktop/` | 本应用数据（如 `projects.json`） |
+| `~/.grok-build-client/` | 本应用数据（如 `projects.json`；会从旧目录 `~/.grok-build-desktop/` 自动迁移） |
 
 ### 快捷键
 

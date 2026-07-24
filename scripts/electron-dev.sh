@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Always kill existing grok-build-desktop Electron/Vite, then start fresh.
+# Always kill existing grok-build-client Electron/Vite, then start fresh.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -10,6 +10,7 @@ echo "[electron:dev] stopping previous instances..."
 
 # Electron for this app
 pkill -f "${ROOT}/node_modules/electron" 2>/dev/null || true
+pkill -f "Electron.app.*grok-build-client" 2>/dev/null || true
 pkill -f "Electron.app.*grok-build-desktop" 2>/dev/null || true
 
 # Vite / concurrently leftover on project port

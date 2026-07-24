@@ -21,7 +21,7 @@ export interface RunState {
 
 /**
  * One-shot headless grok run using --output-format streaming-json.
- * Mirrors JaydenCJ/grok-build-desktop run engine (without Tauri/SQLite).
+ * Headless streaming-json runner for Grok Build Client (no Tauri/SQLite).
  */
 export class HeadlessRunner extends EventEmitter {
   private proc: ChildProcess | null = null;

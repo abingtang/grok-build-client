@@ -1,5 +1,5 @@
 /**
- * AI SDK–shaped chat view model for Grok Build Desktop.
+ * AI SDK–shaped chat view model for Grok Build Client.
  *
  * Desktop keeps ChatMessage[] as source of truth (ACP / headless / session restore).
  * This hook exposes the same surface AI Elements demos expect from useChat:
