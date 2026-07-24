@@ -17,6 +17,13 @@ export type DesktopSnapshotMessage = {
   status?: string;
   createdAt?: string;
   meta?: Record<string, unknown>;
+  attachments?: Array<{
+    id: string;
+    name: string;
+    path: string;
+    mimeType?: string;
+    isImage?: boolean;
+  }>;
 };
 
 export type DesktopSessionSnapshot = {
@@ -178,9 +185,16 @@ export function snapshotToTranscriptItems(
   status?: string;
   timestamp?: number;
   meta?: Record<string, unknown>;
+  attachments?: DesktopSnapshotMessage["attachments"];
 }> {
   return snapshot.messages
-    .filter((m) => m && (m.content || m.role === "tool"))
+    .filter(
+      (m) =>
+        m &&
+        (m.content ||
+          m.role === "tool" ||
+          (m.role === "user" && (m.attachments?.length || 0) > 0)),
+    )
     .map((m, i) => {
       const ts = m.createdAt ? Date.parse(m.createdAt) : NaN;
       return {
@@ -191,6 +205,7 @@ export function snapshotToTranscriptItems(
         status: m.status,
         timestamp: Number.isFinite(ts) ? ts : undefined,
         meta: m.meta,
+        attachments: m.attachments,
       };
     });
 }

@@ -6,6 +6,9 @@
  * defaultOrigin; even when allowed, Electron cannot load filesystem paths from
  * the Vite/http origin. We rewrite through a sentinel origin, then resolve via
  * `fs.readFileBase64` into data URLs.
+ *
+ * Attachment chips use the same IPC path — never `file://` in <img src>
+ * (renderer CSP / origin blocks it).
  */
 import {
   createContext,
@@ -17,6 +20,125 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "@/lib/utils";
+
+const ATTACH_PREVIEW_MAX = 8 * 1024 * 1024;
+
+/** Strip file:// / normalize for fs.readFileBase64. */
+export function filesystemPathFromUri(src: string): string {
+  let path = (src || "").trim();
+  if (!path) return "";
+  if (path.startsWith("file://")) {
+    try {
+      path = decodeURIComponent(path.replace(/^file:\/\//, ""));
+    } catch {
+      path = path.replace(/^file:\/\//, "");
+    }
+  }
+  return path;
+}
+
+/**
+ * Load a local image as a data URL via main-process IPC.
+ * Returns null if missing / not an image / too large.
+ */
+export async function loadLocalImageDataUrl(
+  filePath: string,
+  maxBytes = ATTACH_PREVIEW_MAX,
+): Promise<string | null> {
+  const fp = filesystemPathFromUri(filePath);
+  if (!fp) return null;
+  // Absolute paths only (uploads live under ~/.grok/... absolute paths)
+  if (!(fp.startsWith("/") || /^[A-Za-z]:[\\/]/.test(fp))) return null;
+  try {
+    const api = window.grokDesktop?.fs?.readFileBase64;
+    if (!api) return null;
+    const res = await api(fp, maxBytes);
+    if (!res || "error" in res || !res.dataBase64) return null;
+    const mime = String(res.mimeType || "application/octet-stream");
+    if (
+      !mime.startsWith("image/") &&
+      !/\.(png|jpe?g|gif|webp|bmp|svg|heic)$/i.test(fp)
+    ) {
+      return null;
+    }
+    const safeMime = mime.startsWith("image/")
+      ? mime
+      : "image/png";
+    return `data:${safeMime};base64,${res.dataBase64}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve preview for attachment chips: data:/blob: passthrough, else load path.
+ */
+export function useAttachmentPreviewUrl(
+  previewUrl?: string | null,
+  filePath?: string | null,
+  enabled = true,
+): { src: string | null; loading: boolean; failed: boolean } {
+  const [src, setSrc] = useState<string | null>(() => {
+    if (previewUrl && /^(data:|blob:)/i.test(previewUrl)) return previewUrl;
+    return null;
+  });
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!enabled) {
+      setSrc(null);
+      setLoading(false);
+      setFailed(false);
+      return;
+    }
+
+    if (previewUrl && /^(data:|blob:)/i.test(previewUrl)) {
+      setSrc(previewUrl);
+      setLoading(false);
+      setFailed(false);
+      return;
+    }
+
+    // file:// or bare path — must go through IPC
+    const path =
+      filePath ||
+      (previewUrl && !/^(https?:|data:|blob:)/i.test(previewUrl)
+        ? previewUrl
+        : "");
+
+    if (!path) {
+      setSrc(null);
+      setLoading(false);
+      setFailed(true);
+      return;
+    }
+
+    setLoading(true);
+    setFailed(false);
+    setSrc(null);
+
+    void loadLocalImageDataUrl(path).then((url) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (url) {
+        setSrc(url);
+        setFailed(false);
+      } else {
+        setSrc(null);
+        setFailed(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [previewUrl, filePath, enabled]);
+
+  return { src, loading, failed };
+}
 
 /** Sentinel origin so rehype-harden accepts relative image paths. */
 export const LOCAL_MEDIA_ORIGIN = "https://grok-local.invalid";

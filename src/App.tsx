@@ -46,6 +46,12 @@ import {
   type SettingsState,
 } from "./components/SettingsModal";
 import { SlashMenu } from "./components/SlashMenu";
+import {
+  applyThemeCustom,
+  loadThemeCustomStore,
+  saveThemeCustomStore,
+  type ThemeCustomStore,
+} from "./lib/theme-custom";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -289,6 +295,9 @@ export default function App() {
   >([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [themeLight, setThemeLight] = useState(loadThemeLight);
+  const [themeCustom, setThemeCustom] = useState<ThemeCustomStore>(
+    loadThemeCustomStore,
+  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     shouldAutoCollapseSidebar,
   );
@@ -435,14 +444,23 @@ export default function App() {
       localStorage.setItem(LS.alwaysApprove, alwaysApprove ? "1" : "0");
       localStorage.setItem(LS.model, model);
       localStorage.setItem(LS.theme, themeLight ? "1" : "0");
+      saveThemeCustomStore(themeCustom);
     } catch {
       /* ignore */
     }
-  }, [effort, reasoning, alwaysApprove, model, themeLight]);
+  }, [effort, reasoning, alwaysApprove, model, themeLight, themeCustom]);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = themeLight ? "light" : "dark";
+    const root = document.documentElement;
+    root.dataset.theme = themeLight ? "light" : "dark";
+    // Tailwind `dark:` + Shiki dual-theme (AI Elements / Streamdown)
+    root.classList.toggle("dark", !themeLight);
   }, [themeLight]);
+
+  useEffect(() => {
+    const mode = themeLight ? "light" : "dark";
+    applyThemeCustom(themeCustom[mode], mode);
+  }, [themeLight, themeCustom]);
 
   useEffect(() => {
     const media = window.matchMedia(SIDEBAR_AUTO_COLLAPSE_QUERY);
@@ -1073,6 +1091,12 @@ export default function App() {
           status?: string;
           timestamp?: number;
           meta?: ChatMessage["meta"];
+          attachments?: Array<{
+            id: string;
+            name: string;
+            path: string;
+            isImage?: boolean;
+          }>;
         }>;
         if (!isCurrentLoad()) return;
 
@@ -1094,8 +1118,12 @@ export default function App() {
         const restored: ChatMessage[] = transcript
           .filter((row) => {
             const text = String(row.content || "").trim();
+            const hasAtt = (row.attachments?.length || 0) > 0;
             // 双保险：transcript 侧已过滤，这里再挡一层历史/边界数据
-            if (!text && row.kind !== "tool") return false;
+            // 允许「仅附件」用户消息
+            if (!text && row.kind !== "tool" && !(row.kind === "user" && hasAtt)) {
+              return false;
+            }
             if (
               text.startsWith("<system-reminder>") ||
               text.includes("<system-reminder>")
@@ -1107,20 +1135,35 @@ export default function App() {
             }
             return true;
           })
-          .map((row) => ({
-            id: row.id || uid(),
-            role: kindToRole(row.kind),
-            content: row.content || "",
-            toolName: row.title,
-            status: row.status,
-            createdAt: row.timestamp
-              ? new Date(
-                  row.timestamp > 1e12 ? row.timestamp : row.timestamp * 1000,
-                ).toISOString()
-              : new Date().toISOString(),
-            collapsed: row.kind === "thought",
-            meta: (row as { meta?: ChatMessage["meta"] }).meta,
-          }));
+          .map((row) => {
+            // Do NOT set file:// as previewUrl — renderer cannot load it.
+            // AttachmentStrip resolves path → data URL via fs.readFileBase64.
+            const atts = row.attachments?.map((a) => {
+              const abs = a.path || "";
+              return {
+                id: a.id || uid(),
+                name: a.name,
+                path: abs,
+                mimeType: a.isImage ? "image/*" : "application/octet-stream",
+                isImage: !!a.isImage,
+              };
+            });
+            return {
+              id: row.id || uid(),
+              role: kindToRole(row.kind),
+              content: row.content || "",
+              toolName: row.title,
+              status: row.status,
+              createdAt: row.timestamp
+                ? new Date(
+                    row.timestamp > 1e12 ? row.timestamp : row.timestamp * 1000,
+                  ).toISOString()
+                : new Date().toISOString(),
+              collapsed: row.kind === "thought",
+              meta: (row as { meta?: ChatMessage["meta"] }).meta,
+              attachments: atts?.length ? atts : undefined,
+            };
+          });
 
         transcriptCacheRef.current[cacheKey] = restored;
         setMessages(restored);
@@ -1751,6 +1794,13 @@ export default function App() {
             status: m.status,
             createdAt: m.createdAt,
             meta: m.meta as Record<string, unknown> | undefined,
+            attachments: m.attachments?.map((a) => ({
+              id: a.id,
+              name: a.name,
+              path: a.path,
+              mimeType: a.mimeType,
+              isImage: a.isImage,
+            })),
           })),
         });
       } catch {
@@ -2823,6 +2873,7 @@ export default function App() {
     noPlan,
     sandbox,
     themeLight,
+    themeCustom,
     locale,
   };
 
@@ -3657,6 +3708,7 @@ export default function App() {
           setNoPlan(next.noPlan);
           setSandbox(next.sandbox);
           setThemeLight(next.themeLight);
+          setThemeCustom(next.themeCustom);
           if (next.locale !== locale) setLocale(next.locale);
         }}
         onClose={() => setSettingsOpen(false)}

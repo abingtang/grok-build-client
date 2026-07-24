@@ -1,12 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, MessageAttachment, ToolMeta } from "../lib/types";
-import { highlightCode, renderEditPreview } from "../lib/highlight";
+import { renderEditPreview } from "../lib/highlight";
 import {
   basename,
   countDiffLines,
   extLang,
   renderMarkdown,
 } from "../lib/markdown";
+import {
+  CodeBlock,
+  CodeBlockActions,
+  CodeBlockCopyButton,
+  CodeBlockFilename,
+  CodeBlockHeader,
+  CodeBlockTitle,
+} from "./ai-elements/code-block";
+import { useAttachmentPreviewUrl } from "@/lib/chat-media";
+import { cn } from "@/lib/utils";
 
 interface Props {
   messages: ChatMessage[];
@@ -366,28 +376,30 @@ function guessPathFromTitle(title: string): string {
   return m?.[1] || "";
 }
 
-/** Highlighted code body for tool rows (READ / shell / generic). */
+/** Highlighted code body for tool rows — AI Elements CodeBlock (Shiki). */
 function HighlightedCode({
   code,
   lang,
   className = "read-body",
+  filename,
 }: {
   code: string;
   lang?: string | null;
   className?: string;
+  filename?: string;
 }) {
-  const html = useMemo(
-    () => highlightCode(code, lang || "plaintext"),
-    [code, lang],
-  );
-  const language = (lang || "plaintext").toLowerCase();
+  const label = filename || lang || "code";
   return (
-    <pre className={`${className} hljs-pre`}>
-      <code
-        className={`hljs language-${language}`}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    </pre>
+    <CodeBlock code={code} language={lang || "text"} className={cn("my-0", className)}>
+      <CodeBlockHeader>
+        <CodeBlockTitle>
+          <CodeBlockFilename>{label}</CodeBlockFilename>
+        </CodeBlockTitle>
+        <CodeBlockActions>
+          <CodeBlockCopyButton />
+        </CodeBlockActions>
+      </CodeBlockHeader>
+    </CodeBlock>
   );
 }
 
@@ -619,23 +631,27 @@ function AgentTurnView({
   forkDisabled?: boolean;
 }) {
   const elapsed = turnElapsedMs(turn, turn.live ? liveElapsedMs : undefined);
-  const finalResult =
-    turn.results.length > 0 ? turn.results[turn.results.length - 1] : null;
-  // Intermediate assistant chunks (rare) still render inside process if live
-  const intermediate = turn.results.slice(0, -1).filter((m) => m.content);
+  // History splits assistant around tools; live is one bubble — join for display.
+  const finalResult = (() => {
+    if (!turn.results.length) return null;
+    const last = turn.results[turn.results.length - 1];
+    if (turn.results.length === 1) return last;
+    const parts = turn.results
+      .map((m) => (m.content || "").replace(/\s+$/u, ""))
+      .filter(Boolean);
+    if (parts.length <= 1) return last;
+    return {
+      ...last,
+      content: parts.join("\n\n"),
+      streaming: turn.results.some((m) => !!m.streaming),
+    };
+  })();
 
   return (
     <div className={`agent-turn${turn.live ? " live" : ""}`}>
       <ProcessPanel turn={turn} elapsedMs={elapsed} />
 
-      {/* Intermediate assistant text (if any) — rare, keep subtle */}
-      {intermediate.map((m) => (
-        <div key={m.id} className="msg assistant codex-assistant muted-result">
-          <AssistantBody content={m.content} streaming={m.streaming} />
-        </div>
-      ))}
-
-      {/* Final answer — primary surface */}
+      {/* Final answer — primary surface (all assistant parts joined) */}
       {finalResult ? (
         <div
           className={`msg assistant codex-assistant msg-with-actions${finalResult.streaming ? " streaming" : ""}`}
@@ -730,6 +746,15 @@ function AssistantBody({
   );
 }
 
+function MsgAttachmentThumb({ a }: { a: MessageAttachment }) {
+  const isImage = !!(a.isImage || a.mimeType?.startsWith("image/"));
+  const { src, loading } = useAttachmentPreviewUrl(a.previewUrl, a.path, isImage);
+  if (!isImage) return <span>📎 {a.name}</span>;
+  if (src) return <img src={src} alt={a.name} />;
+  if (loading) return <span className="msg-attach-file">…</span>;
+  return <span className="msg-attach-file">🖼 {a.name}</span>;
+}
+
 function AttachmentStrip({ items }: { items: MessageAttachment[] }) {
   if (!items.length) return null;
   return (
@@ -737,11 +762,7 @@ function AttachmentStrip({ items }: { items: MessageAttachment[] }) {
       {items.map((a) =>
         a.isImage || a.mimeType?.startsWith("image/") ? (
           <div key={a.id} className="msg-attach-thumb" title={a.path || a.name}>
-            {a.previewUrl ? (
-              <img src={a.previewUrl} alt={a.name} />
-            ) : (
-              <span className="msg-attach-file">🖼 {a.name}</span>
-            )}
+            <MsgAttachmentThumb a={a} />
             <span className="msg-attach-name">{a.name}</span>
           </div>
         ) : (

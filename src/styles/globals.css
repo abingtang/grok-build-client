@@ -6,7 +6,8 @@
 @source "../../node_modules/streamdown/dist/**/*.js";
 @source "../../node_modules/@streamdown/**/*.js";
 
-@custom-variant dark (&:is(.dark *));
+/* Match both .dark class and our app data-theme=dark (Shiki / Streamdown use dark:) */
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
 
 @theme inline {
   --color-background: var(--background);
@@ -31,6 +32,12 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  /*
+   * Bridge app theme tokens → Tailwind font utilities / preflight.
+   * Without this, font-sans / html preflight ignore --font / --mono.
+   */
+  --font-sans: var(--font);
+  --font-mono: var(--mono);
 }
 
 /*
@@ -153,6 +160,42 @@
 .light .ui-switch:not([data-state="checked"]) {
   background: #b8b8b1;
   background-color: #b8b8b1;
+}
+
+/* Slider：对比度等（plain CSS，避免 unlayered 覆盖） */
+.ui-slider {
+  height: 20px;
+}
+
+.ui-slider-track {
+  background: color-mix(in srgb, var(--border-strong, #3c3c3c) 70%, transparent);
+  background-color: color-mix(in srgb, var(--border-strong, #3c3c3c) 70%, transparent);
+}
+
+.ui-slider-range {
+  background: var(--brand, #ece9e2);
+  background-color: var(--brand, #ece9e2);
+}
+
+.ui-slider-thumb {
+  border: 2px solid var(--brand, #ece9e2);
+  background: #ffffff;
+  background-color: #ffffff;
+  cursor: pointer;
+  transition: box-shadow 0.12s ease;
+}
+
+.ui-slider-thumb:hover {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand, #ece9e2) 22%, transparent);
+}
+
+.ui-slider-thumb:focus-visible {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand, #ece9e2) 35%, transparent);
+}
+
+.ui-slider[data-disabled] {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 /* ToggleGroup：激活态实心 primary，避免与轨道糊在一起 */
@@ -558,39 +601,162 @@ div.chat-process-row:hover {
     line-height: var(--chat-body-line-height, 1.5);
   }
 
-  /* Code block: single outer border; kill nested Streamdown layers */
+  /*
+   * Streamdown fenced code → AI Elements CodeBlock look
+   * https://elements.ai-sdk.dev/components/code-block
+   *
+   * Streamdown DOM (simplified):
+   *   [data-streamdown=code-block]          // outer card (default: p-2 gap-2 sticky actions)
+   *     [data-streamdown=code-block-header] // language label
+   *     > div (sticky -mt-10)               // actions overlay
+   *       [data-streamdown=code-block-actions]
+   *     [data-streamdown=code-block-body] / pre
+   *
+   * We reflow sticky/-mt-10 into a real header toolbar so the copy
+   * button sits inside the card (not floating outside).
+   */
   [data-streamdown="code-block"] {
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius-md) !important;
-    background: color-mix(in oklab, var(--muted) 40%, transparent) !important;
-    overflow: hidden !important;
-    padding: 0 !important;
+    position: relative !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+    width: 100% !important;
     margin: 0.75rem 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 0.5rem !important;
+    background: var(--card, var(--bg-1, #131313)) !important;
+    color: var(--foreground) !important;
+    /* Kill Streamdown content-visibility placeholder (~200px empty gap) */
+    content-visibility: visible !important;
+    contain-intrinsic-size: none !important;
+  }
+
+  [data-streamdown="code-block-header"] {
+    display: flex !important;
+    align-items: center !important;
+    min-height: 2.25rem !important;
+    height: 2.25rem !important;
+    margin: 0 !important;
+    padding: 0 2.75rem 0 0.75rem !important; /* leave room for copy btn */
+    border: none !important;
+    border-bottom: 1px solid var(--border) !important;
+    border-radius: 0 !important;
+    background: color-mix(in srgb, var(--muted) 55%, transparent) !important;
+    font-size: 12px !important;
+    color: var(--muted-foreground) !important;
+  }
+
+  [data-streamdown="code-block-header"] span {
+    margin: 0 !important;
+    font-family: var(--mono), ui-monospace, monospace !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    text-transform: none !important;
+    letter-spacing: 0.01em !important;
+  }
+
+  /* Sticky actions wrapper Streamdown injects after header */
+  [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]) {
+    position: absolute !important;
+    top: 0.25rem !important;
+    right: 0.35rem !important;
+    bottom: auto !important;
+    left: auto !important;
+    z-index: 5 !important;
+    display: flex !important;
+    width: auto !important;
+    height: 1.75rem !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    pointer-events: none !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
+    /* neutralize sticky / -mt-10 / top-2 from Streamdown utilities */
+    transform: none !important;
+    inset-block-start: 0.25rem !important;
+    inset-inline-end: 0.35rem !important;
+  }
+
+  /* Fallback if :has is unavailable — target common sticky overlay pattern */
+  [data-streamdown="code-block"] > .sticky,
+  [data-streamdown="code-block"] > [class*="sticky"] {
+    position: absolute !important;
+    top: 0.25rem !important;
+    right: 0.35rem !important;
+    margin-top: 0 !important;
+    transform: none !important;
+  }
+
+  [data-streamdown="code-block-actions"] {
+    pointer-events: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.15rem !important;
+    margin: 0 !important;
+    padding: 0.1rem !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 0.4rem !important;
+    background: color-mix(in srgb, var(--card, var(--bg-1)) 88%, transparent) !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+
+  [data-streamdown="code-block-body"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    min-height: 0 !important;
   }
 
   [data-streamdown="code-block"] pre,
-  [data-streamdown="code-block"] code,
-  [data-streamdown="code-block"] > div,
-  [data-streamdown="code-block"] [class*="rounded"],
-  [data-streamdown="code-block"] [class*="border"],
-  [data-streamdown="code-block"] [class*="p-2"],
-  [data-streamdown="code-block"] [class*="p-3"] {
+  [data-streamdown="code-block-body"] pre {
+    margin: 0 !important;
+    padding: 0.875rem 1rem !important;
+    overflow-x: auto !important;
+    max-height: 24rem !important;
     border: none !important;
     border-radius: 0 !important;
     background: transparent !important;
     box-shadow: none !important;
-  }
-
-  [data-streamdown="code-block"] pre {
-    overflow-x: auto !important;
-    margin: 0 !important;
-    padding: 0.75rem !important;
     font-size: var(--chat-code-font-size, 13px) !important;
+    line-height: 1.55 !important;
   }
 
-  [data-streamdown="code-block-actions"],
-  [data-streamdown="code-block"] [data-streamdown="code-block-actions"] {
-    display: none !important;
+  [data-streamdown="code-block"] code {
+    font-family: var(--mono), ui-monospace, monospace !important;
+    font-size: inherit !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    color: inherit !important;
+  }
+
+  [data-streamdown="code-block-copy-button"],
+  [data-streamdown="code-block-download-button"] {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 1.5rem !important;
+    height: 1.5rem !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0.3rem !important;
+    background: transparent !important;
+    color: var(--muted-foreground) !important;
+    cursor: pointer !important;
+    opacity: 0.85 !important;
+  }
+
+  [data-streamdown="code-block-copy-button"]:hover,
+  [data-streamdown="code-block-download-button"]:hover {
+    background: var(--accent) !important;
+    color: var(--accent-foreground) !important;
+    opacity: 1 !important;
   }
 
   /* Table: one wrapper border */

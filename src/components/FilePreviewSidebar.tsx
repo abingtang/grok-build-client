@@ -6,7 +6,6 @@
 import { useMemo } from "react";
 import { basename } from "@/lib/markdown";
 import {
-  highlightCode,
   langFromPath,
   normalizeLang,
   renderEditPreview,
@@ -14,6 +13,14 @@ import {
 import { cn } from "@/lib/utils";
 import { FileIcon, XIcon } from "lucide-react";
 import { useI18n } from "../i18n";
+import {
+  CodeBlock,
+  CodeBlockActions,
+  CodeBlockCopyButton,
+  CodeBlockFilename,
+  CodeBlockHeader,
+  CodeBlockTitle,
+} from "./ai-elements/code-block";
 
 export type FilePreviewSidebarProps = {
   open: boolean;
@@ -66,15 +73,17 @@ export function FilePreviewSidebar({
         added: preview.added,
         removed: preview.removed,
         lang: normalizeLang(lang),
+        source: "",
       };
     }
     const source = content || "";
     return {
       kind: "code" as const,
-      html: source ? highlightCode(source, lang) : "",
+      html: "",
       added: 0,
       removed: 0,
       lang: normalizeLang(lang),
+      source,
     };
   }, [useDiff, oldText, newText, content, lang]);
 
@@ -134,29 +143,29 @@ export function FilePreviewSidebar({
         </button>
       </header>
 
-      <div className="file-preview-body min-h-0 flex-1 overflow-auto">
-        {rendered.html ? (
-          <pre
-            className={cn(
-              "file-preview-pre m-0",
-              rendered.kind === "diff" ? "px-0 py-0" : "px-3.5 py-3",
-            )}
-          >
-            {rendered.kind === "diff" ? (
-              <div
-                className="file-preview-diff diff-code"
-                dangerouslySetInnerHTML={{ __html: rendered.html }}
-              />
-            ) : (
-              <code
-                className={cn(
-                  "hljs language-" + rendered.lang,
-                  "file-preview-code",
-                )}
-                dangerouslySetInnerHTML={{ __html: rendered.html }}
-              />
-            )}
+      <div className="file-preview-body min-h-0 flex-1 overflow-auto p-2">
+        {rendered.kind === "diff" && rendered.html ? (
+          <pre className="file-preview-pre m-0 px-0 py-0">
+            <div
+              className="file-preview-diff diff-code"
+              dangerouslySetInnerHTML={{ __html: rendered.html }}
+            />
           </pre>
+        ) : rendered.kind === "code" && rendered.source ? (
+          <CodeBlock
+            code={rendered.source}
+            language={rendered.lang}
+            className="h-full border-0 shadow-none"
+          >
+            <CodeBlockHeader>
+              <CodeBlockTitle>
+                <CodeBlockFilename>{label}</CodeBlockFilename>
+              </CodeBlockTitle>
+              <CodeBlockActions>
+                <CodeBlockCopyButton />
+              </CodeBlockActions>
+            </CodeBlockHeader>
+          </CodeBlock>
         ) : (
           <div className="px-3.5 py-6 text-center text-xs text-muted-foreground">
             {t("preview.empty")}

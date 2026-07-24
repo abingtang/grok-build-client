@@ -76,7 +76,7 @@ import {
   turnElapsedMs,
 } from "@/lib/chat-segments";
 import type { ChatMessage, MessageAttachment, ToolMeta } from "@/lib/types";
-import { ChatMediaProvider } from "@/lib/chat-media";
+import { ChatMediaProvider, useAttachmentPreviewUrl } from "@/lib/chat-media";
 import { basename, countDiffLines } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 import {
@@ -169,6 +169,43 @@ function guessPathFromTitle(title: string): string {
 
 /* ─── attachments ─── */
 
+function AttachmentThumb({ a }: { a: MessageAttachment }) {
+  const isImage = !!(a.isImage || a.mimeType?.startsWith("image/"));
+  const { src, loading, failed } = useAttachmentPreviewUrl(
+    a.previewUrl,
+    a.path,
+    isImage,
+  );
+
+  if (!isImage) {
+    return <span aria-hidden>📎</span>;
+  }
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={a.name}
+        className="h-8 w-8 rounded object-cover"
+        title={a.path || a.name}
+      />
+    );
+  }
+  if (loading) {
+    return (
+      <span
+        className="inline-block h-8 w-8 animate-pulse rounded bg-muted"
+        aria-hidden
+      />
+    );
+  }
+  // Path gone / unreadable — still show a chip, not a broken <img>
+  return (
+    <span className="text-[11px] opacity-70" title={failed ? a.path || a.name : undefined}>
+      🖼
+    </span>
+  );
+}
+
 function AttachmentStrip({ items }: { items?: MessageAttachment[] }) {
   if (!items?.length) return null;
   return (
@@ -177,16 +214,9 @@ function AttachmentStrip({ items }: { items?: MessageAttachment[] }) {
         <div
           key={a.id}
           className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs"
+          title={a.path || a.name}
         >
-          {a.isImage && a.previewUrl ? (
-            <img
-              src={a.previewUrl}
-              alt={a.name}
-              className="h-8 w-8 rounded object-cover"
-            />
-          ) : (
-            <span>📎</span>
-          )}
+          <AttachmentThumb a={a} />
           <span className="max-w-[140px] truncate">{a.name}</span>
         </div>
       ))}
@@ -969,8 +999,8 @@ function classifyProcessItem(m: ChatMessage): TimelineKind {
 }
 
 /**
- * process + edits + 中间正文 按时间序合并，再按连续 kind 分段。
- * interimNotes: 最终正文之前的 assistant 短句，收进执行过程，不可复制。
+ * process + edits 按时间序合并，再按连续 kind 分段。
+ * （assistant 正文统一在最终结果区展示，不再拆成 interimNotes）
  */
 function buildTimelineRuns(
   turn: AgentTurn,
@@ -1571,10 +1601,31 @@ function AgentTurnView({
   onPreview?: PreviewHandler;
 }) {
   const elapsed = turnElapsedMs(turn, turn.live ? liveElapsedMs : undefined);
-  const finalResult =
-    turn.results.length > 0 ? turn.results[turn.results.length - 1] : null;
-  // 中间短句收进执行过程，不单独展示、不可复制
-  const interimNotes = turn.results.slice(0, -1).filter((m) => m.content);
+
+  /**
+   * Live streaming keeps ONE assistant bubble for the whole turn (streamBuffer).
+   * History rebuild from updates.jsonl flushes assistant text whenever a tool
+   * appears, so one turn becomes multiple `results`.
+   *
+   * Old UI only showed the last result and stuffed earlier parts into
+   * ProcessPanel as "interim notes" → reopening a session looked shorter /
+   * different from the stream. Join all non-empty assistant parts so history
+   * matches the live final answer.
+   */
+  const finalResult = (() => {
+    if (!turn.results.length) return null;
+    const last = turn.results[turn.results.length - 1];
+    if (turn.results.length === 1) return last;
+    const parts = turn.results
+      .map((m) => (m.content || "").replace(/\s+$/u, ""))
+      .filter(Boolean);
+    if (parts.length <= 1) return last;
+    return {
+      ...last,
+      content: parts.join("\n\n"),
+      streaming: turn.results.some((m) => !!m.streaming),
+    };
+  })();
 
   return (
     <div
@@ -1584,14 +1635,13 @@ function AgentTurnView({
       )}
     >
       {/*
-        1. 执行过程（思考 / 工具 / 命令 / 中间短句；live 展开，完成后收起）
-        2. 最终正文（仅最后一条 assistant）
+        1. 执行过程（思考 / 工具 / 命令；live 展开，完成后收起）
+        2. 最终正文（本轮全部 assistant 文本；历史多段会合并）
         3. 编辑汇总（完成后）
       */}
       <ProcessPanel
         turn={turn}
         elapsedMs={elapsed}
-        interimNotes={interimNotes}
         onPreview={onPreview}
       />
 

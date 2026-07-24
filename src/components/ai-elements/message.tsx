@@ -145,8 +145,10 @@ const MessageResponseBase = ({
       className,
     )}
     plugins={{ cjk, code, math, mermaid }}
-    controls={false}
+    /* AI Elements–style code blocks: header language + copy (see elements.ai-sdk.dev/components/code-block) */
+    controls={{ code: { copy: true, download: false }, table: false }}
     lineNumbers={false}
+    shikiTheme={["github-light", "github-dark"]}
     isAnimating={isAnimating}
     rehypePlugins={rehypePlugins ?? chatRehypePlugins}
     components={{ ...chatMarkdownComponents, ...components }}

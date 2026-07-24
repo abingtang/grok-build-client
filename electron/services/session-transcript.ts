@@ -20,6 +20,14 @@ export type TranscriptKind =
   | "system"
   | "subagent";
 
+/** Attachment recovered from desktop attachSuffix embedded in user prompt text. */
+export interface TranscriptAttachment {
+  id: string;
+  name: string;
+  path: string;
+  isImage?: boolean;
+}
+
 export interface TranscriptItem {
   id: string;
   kind: TranscriptKind;
@@ -31,6 +39,8 @@ export interface TranscriptItem {
   timestamp?: number;
   /** Structured extras for UI */
   meta?: Record<string, unknown>;
+  /** User-message attachments (parsed from client attachSuffix or live snapshot) */
+  attachments?: TranscriptAttachment[];
 }
 
 function findSessionDir(sessionId: string, cwd?: string): string | null {
@@ -111,6 +121,89 @@ function shouldHideUpdate(
   const meta = update._meta as Record<string, unknown> | undefined;
   if (meta && meta.hideFromScrollback === true) return true;
   return isHiddenScrollbackText(text);
+}
+
+/** Normalize jsonl timestamps (sec or ms) to milliseconds. */
+function toMs(ts?: number): number | null {
+  if (ts == null || !Number.isFinite(ts)) return null;
+  return ts < 1e12 ? ts * 1000 : ts;
+}
+
+function timestampGapMs(prev?: number, next?: number): number | null {
+  const a = toMs(prev);
+  const b = toMs(next);
+  if (a == null || b == null) return null;
+  return Math.abs(b - a);
+}
+
+/**
+ * Desktop client embeds attachments into the ACP prompt as:
+ *   {user text}\n\n[附件]\n- name: path (image)\n请读取...
+ *   or English [Attachments] ...
+ * Strip that trailer for display and recover structured attachments.
+ */
+export function parseUserPromptForDisplay(raw: string): {
+  content: string;
+  attachments?: TranscriptAttachment[];
+} {
+  if (!raw) return { content: "" };
+  const patterns: RegExp[] = [
+    /\n\n\[附件\]\n([\s\S]*?)\n请读取上述路径中的文件\/图片内容后再回答。\s*$/u,
+    /\n\n\[Attachments\]\n([\s\S]*?)\nPlease read the files\/images at the paths above before answering\.\s*$/iu,
+  ];
+  for (const re of patterns) {
+    const m = raw.match(re);
+    if (!m || m.index == null) continue;
+    const body = raw.slice(0, m.index).replace(/\s+$/u, "");
+    const block = m[1] || "";
+    const attachments: TranscriptAttachment[] = [];
+    for (const line of block.split("\n")) {
+      const lm = line.match(/^- (.+?): (.+?)(?: \((?:image|图片)\))?\s*$/u);
+      if (!lm) continue;
+      const name = lm[1].trim();
+      const filePath = lm[2].trim();
+      if (!name || !filePath) continue;
+      const isImage =
+        /\((?:image|图片)\)\s*$/u.test(line) ||
+        /\.(png|jpe?g|gif|webp|bmp|svg|heic)$/iu.test(filePath);
+      attachments.push({
+        id: `att-${attachments.length}-${name}`,
+        name,
+        path: filePath,
+        isImage,
+      });
+    }
+    return {
+      content: body,
+      attachments: attachments.length ? attachments : undefined,
+    };
+  }
+  return { content: raw };
+}
+
+/** User prompt already includes a full desktop attach trailer → next user text is a new turn. */
+function isCompleteDesktopUserPrompt(text: string): boolean {
+  const t = text.trimEnd();
+  if (/请读取上述路径中的文件\/图片内容后再回答。\s*$/u.test(t)) return true;
+  if (
+    /Please read the files\/images at the paths above before answering\.\s*$/iu.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Chunk is likely mid-message attachment suffix, not a new user turn. */
+function isUserChunkContinuation(text: string): boolean {
+  const t = text.replace(/^\n+/, "");
+  if (!t) return true;
+  if (t.startsWith("- ")) return true;
+  if (t.startsWith("[附件]") || t.startsWith("[Attachments]")) return true;
+  if (t.startsWith("请读取上述路径")) return true;
+  if (/^Please read the files\/images/i.test(t)) return true;
+  return false;
 }
 
 function extractToolOutput(update: Record<string, unknown>): string {
@@ -395,7 +488,10 @@ export function parseUpdatesJsonl(
         title?: string;
         status?: string;
         toolCallId?: string;
+        /** First event time for this buffer */
         timestamp?: number;
+        /** Last user/assistant chunk time (for turn-gap detection) */
+        lastTimestamp?: number;
       }
     | null = null;
 
@@ -428,6 +524,27 @@ export function parseUpdatesJsonl(
       buf = null;
       return;
     }
+
+    if (buf.kind === "user") {
+      const parsed = parseUserPromptForDisplay(buf.content);
+      // Allow attachment-only user turns
+      if (!parsed.content.trim() && !parsed.attachments?.length) {
+        if (isHiddenScrollbackText(buf.content)) {
+          buf = null;
+          return;
+        }
+      }
+      items.push({
+        id: nextId("user"),
+        kind: "user",
+        content: parsed.content,
+        timestamp: buf.timestamp,
+        attachments: parsed.attachments,
+      });
+      buf = null;
+      return;
+    }
+
     items.push({
       id: nextId(buf.kind),
       kind: buf.kind,
@@ -446,12 +563,50 @@ export function parseUpdatesJsonl(
     timestamp?: number,
   ) => {
     if (!text) return;
+
+    // ── User turns: do NOT glue separate prompts into one bubble ──
+    // Live UI keeps one ChatMessage per send; history was merging consecutive
+    // user_message(_chunk) events until an agent event arrived. That produced
+    // one bubble with two attachSuffix prompts when the user sent twice in a
+    // row (or when agent events were sparse between turns).
+    if (kind === "user") {
+      if (buf?.kind === "user") {
+        const gap = timestampGapMs(buf.lastTimestamp ?? buf.timestamp, timestamp);
+        const shouldSplit =
+          (gap != null && gap >= 1500) ||
+          (isCompleteDesktopUserPrompt(buf.content) &&
+            !isUserChunkContinuation(text));
+        if (shouldSplit) {
+          flush();
+          buf = {
+            kind: "user",
+            content: text,
+            timestamp,
+            lastTimestamp: timestamp,
+          };
+          return;
+        }
+        buf.content += text;
+        if (timestamp != null) buf.lastTimestamp = timestamp;
+        return;
+      }
+      flush();
+      buf = {
+        kind: "user",
+        content: text,
+        timestamp,
+        lastTimestamp: timestamp,
+      };
+      return;
+    }
+
     if (buf && buf.kind === kind) {
       buf.content += text;
+      if (timestamp != null) buf.lastTimestamp = timestamp;
       return;
     }
     flush();
-    buf = { kind, content: text, timestamp };
+    buf = { kind, content: text, timestamp, lastTimestamp: timestamp };
   };
 
   const lines = fs.readFileSync(filePath, "utf8").split("\n");
